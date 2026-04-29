@@ -5,33 +5,41 @@ open Spectre.Tui
 open System.Collections.Generic
 
 type ListItem(text: string) =
-    inherit ListWidgetItem()
-    override _.CreateText(isSelected) =
-        let style = if isSelected then Style(Color.Yellow, Color.Blue) else Style.Plain
-        Text(LineExtensions.FromString(text, style))
+  inherit ListWidgetItem()
+
+  override _.CreateText(isSelected) =
+    let style =
+      if isSelected then
+        Style(Color.Yellow, Color.Blue)
+      else
+        Style.Plain
+
+    Text(LineExtensions.FromString(text, style))
 
 [<AutoOpen>]
 module ListWidgetFSharp =
-    let listWidget<'t when 't :> IListWidgetItem> (items: 't seq) =
-        ListWidget<'t>(List<'t>(items))
+  let listWidget<'t when 't :> IListWidgetItem> (items: 't seq) =
+    ListWidget<'t>(List<'t>(items))
 
-    let withHighlightStyle style (list: ListWidget<'t>) =
-        list.HighlightStyle <- style
-        list
+  let withHighlightStyle style (list: ListWidget<'t>) =
+    list.HighlightStyle <- style
+    list
 
-    let withHighlightSymbol symbol (list: ListWidget<'t>) =
-        list.HighlightSymbol <- symbol
-        list
+  let withHighlightSymbol symbol (list: ListWidget<'t>) =
+    list.HighlightSymbol <- symbol
+    list
 
-    let withSelectedIndex (index: int option) (list: ListWidget<'t>) =
-        list.SelectedIndex <-
-            match index with
-            | Some i -> System.Nullable i
-            | None -> System.Nullable()
-        list
+  let withSelectedIndex (index: int option) (list: ListWidget<'t>) =
+    list.SelectedIndex <-
+      match index with
+      | Some i -> System.Nullable i
+      | None -> System.Nullable()
 
-    let withWrapAround (enable: bool) (list: ListWidget<'t>) =
-        list.WrapAround <- enable
-        list
+    list
 
-    let selectedIndex index list = withSelectedIndex (Some index) list
+  let withWrapAround (enable: bool) (list: ListWidget<'t>) =
+    list.WrapAround <- enable
+    list
+
+  let selectedIndex index list =
+    withSelectedIndex (Some index) list
