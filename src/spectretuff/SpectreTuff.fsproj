@@ -12,5 +12,6 @@
     <Compile Include="View.fs" />
     <Compile Include="Layout.fs" />
     <Compile Include="Widgets/Box.fs" />
+    <Compile Include="Widgets/List.fs" />
   </ItemGroup>
 </Project>

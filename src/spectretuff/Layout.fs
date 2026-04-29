@@ -20,7 +20,7 @@ module Layout =
     // instead of a Rectangle (nothing more that the vctx.Viewport is used in Get).
     // This way, when Get is called on a child Layout, the Wiewport does not align anymore.
     // But maybe that is on design, to be able to zoom into sublayouts.
-    let getPortFor ctx name (layout: Layout) =
+    let getPortFor ctx (layout: Layout) name =
         layout.GetArea(ctx, name)
 
     let getLayout name (layout: Layout) =
