@@ -12,6 +12,7 @@ type Model = {
   LogicModel: Logic.Model
   ListModel: ListWidget.Model
   ExitEvent: Threading.ManualResetEventSlim
+  LogModel: Log.Model
 }
 
 let exitEvent = new Threading.ManualResetEventSlim false
@@ -30,6 +31,7 @@ let init () =
       ]
     }
     ExitEvent = exitEvent
+    LogModel = Log.init ()
   },
   []
 
@@ -42,6 +44,8 @@ let update msg model =
       | ConsoleKey.D1 -> model, Cmd.ofMsg (LogicMsg(Logic.Increment 1))
       | ConsoleKey.D5 -> model, Cmd.ofMsg (LogicMsg(Logic.Increment 5))
       | ConsoleKey.D2 -> model, Cmd.ofMsg (LogicMsg(Logic.Increment 2))
+      | ConsoleKey.UpArrow -> model, Cmd.ofMsg (ListMsg ListWidget.Up)
+      | ConsoleKey.DownArrow -> model, Cmd.ofMsg (ListMsg ListWidget.Down)
       | ConsoleKey.Q -> model, Cmd.ofMsg Exit
       | _ -> model, Cmd.none
   | LogicMsg logicMsg ->
@@ -62,82 +66,32 @@ open System.IO
 
 let mainLayout =
   layout "main"
-  |> splitVertically [|
-    layout "left"
-    layout "right"
-    |> splitHorizontally [| layout "one"; layout "two" |> hide; layout "three" |]
+  |> splitHorizontally [|
+    layout "top"
+    |> withRatio 3
+    |> splitVertically [| layout "left"; layout "right" |]
+    layout "log" |> withRatio 1
   |]
 
-let widgets = [
-  "green",
-  box Spectre.Console.Color.Green
-  |> withTitle "Green Box"
-  |> withInnerWidget (ofString "one")
-  "red",
-  box Spectre.Console.Color.Red
-  |> withTitle "Outer Box"
-  |> withInnerWidget (
-    box Spectre.Console.Color.Purple
-    |> withTitle "Inner Box"
-    |> withInnerWidget (ofString "one")
-  )
-]
-
 let view (renderer: Renderer) model dispatch =
-
   renderer.Draw(fun ctx elapsed ->
-    let count = model.LogicModel.Count
     let getPort = getPort ctx.Viewport mainLayout
 
-    // render w1
-    match count % 4 with
-    | 0 -> ctx.Render(widgets.Head |> snd, getPort "left")
-    | 1 -> ctx.Render(widgets.Head |> snd, getPort "one")
-    | 2 -> ctx.Render(widgets.Head |> snd, getPort "three")
-    | 3 -> ()
+    ListWidget.view model.ListModel ctx (getPort "left")
+    Logic.view model.LogicModel ctx (getPort "right")
+    Log.view model.LogModel ctx (getPort "log"))
 
-    // render w2
-    match count % 2 with
-    | 0 ->
-      let port = getPort "one"
-      ctx.Render(widgets.Tail.Head |> snd, port)
-      ctx.Render(Text(LineExtensions.FromString $"Current Count: {model.LogicModel.Count}"), getInner port)
-    | 1 -> ctx.Render(widgets.Tail.Head |> snd, getPort "three")
-
-    if count % 4 = 3 then
-      ctx.Render(box Spectre.Console.Color.Pink1, shrink ctx.Viewport 3 3)
-      ctx.Render(new ClearWidget ' ', shrink ctx.Viewport 4 4))
-
-  ListWidget.view renderer model.ListModel dispatch
-
-let logTrace msg model subs =
-  eprintfn "Msg: %A" msg
-  eprintfn "Model: %A" model
-  eprintfn "Subs: %A" subs
-
-let logFile (path: string) msg model subs =
-  let lines = [
-    sprintf "Msg: %A" msg
-    sprintf "Model: %A" model
-    sprintf "Subs: %A" subs
-    "---"
-  ]
-
-  File.AppendAllLines(path, lines)
-
-let logToDefaultFile = logFile "./trace.log"
-
-let noLog _ __ ___ =
-  ()
+let traceToLog msg (model: Model) _ =
+  Log.append (sprintf "%A" msg) model.LogModel
 
 Console.Clear()
 let terminal = Terminal.Create()
 let renderer = Renderer terminal
-renderer.SetTargetFps 144
+renderer.NoTargetFps()
 
 Program.mkProgram init update (view renderer)
 |> Input.withKeyListener InputMsg
-|> Program.withTrace logToDefaultFile
+|> Program.withTrace traceToLog
 |> Program.run
 
 exitEvent.Wait()

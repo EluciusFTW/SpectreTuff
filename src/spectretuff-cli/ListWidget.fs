@@ -40,23 +40,18 @@ let update msg model =
       },
       []
 
-let view (renderer: Renderer) (model: Model) dispatch =
-  renderer.Draw(fun ctx elapsed ->
-    let vp = ctx.Viewport
+let view (model: Model) (ctx: RenderContext) (area: Rectangle) =
+  let listW =
+    listWidget model.items
+    |> selectedIndex model.index
+    |> withHighlightSymbol (LineExtensions.FromString ("> ", Style Color.Blue))
+    |> withWrapAround true
 
-    let listW =
-      listWidget model.items
-      |> selectedIndex model.index
-      |> withHighlightSymbol (LineExtensions.FromString("> ", Style(Color.Blue)))
-      |> withWrapAround true
+  let listArea = Rectangle (area.X, area.Y, area.Width, area.Height - 1)
+  RenderContextExtensions.Render (ctx, listW, listArea)
 
-    let listArea = Rectangle(vp.X + 2, vp.Y + 2, 30, 10)
-    RenderContextExtensions.Render(ctx, listW, listArea)
-
-    let info = $"Selected Index: {model.index} (of {model.items.Length})"
-
-    RenderContextExtensions.Render(
-      ctx,
-      Text(LineExtensions.FromString(info, Style(Color.Green))),
-      Rectangle(vp.X + 2, vp.Y + 13, 30, 1)
-    ))
+  let info = $"Selected: {model.index + 1} of {model.items.Length}"
+  RenderContextExtensions.Render (
+    ctx,
+    Text (LineExtensions.FromString (info, Style Color.Green)),
+    Rectangle (area.X, area.Bottom - 1, area.Width, 1))
