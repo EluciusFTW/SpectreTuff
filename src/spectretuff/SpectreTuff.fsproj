@@ -15,5 +15,6 @@
     <Compile Include="Widgets/List.fs" />
     <Compile Include="Widgets/Paragraph.fs" />
     <Compile Include="Widgets/Table.fs" />
+    <Compile Include="Widgets/ScrollView.fs" />
   </ItemGroup>
 </Project>
