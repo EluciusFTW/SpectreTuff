@@ -14,5 +14,6 @@
     <Compile Include="Widgets/Box.fs" />
     <Compile Include="Widgets/List.fs" />
     <Compile Include="Widgets/Paragraph.fs" />
+    <Compile Include="Widgets/Table.fs" />
   </ItemGroup>
 </Project>
