@@ -13,7 +13,6 @@ module Box =
     box
 
   let withTitle title =
-    TextLine "hello"
     withBoxTitle (BoxTitle(TextLine(TextSpan title), TitlePosition.Top, Justify.Left))
 
   let withBorder (box: BoxWidget) border =

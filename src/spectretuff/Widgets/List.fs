@@ -5,16 +5,15 @@ open Spectre.Tui
 open System.Collections.Generic
 
 type ListItem(text: string) =
-  inherit ListWidgetItem()
+  interface IListWidgetItem with
+    member _.CreateText(isSelected) =
+      let style =
+        if isSelected then
+          Style(Color.Yellow, Color.Blue)
+        else
+          Style.Plain
 
-  override _.CreateText(isSelected) =
-    let style =
-      if isSelected then
-        Style(Color.Yellow, Color.Blue)
-      else
-        Style.Plain
-
-    Text(LineExtensions.FromString(text, style))
+      Text(LineExtensions.FromString(text, style))
 
 [<AutoOpen>]
 module ListWidgetFSharp =
