@@ -17,6 +17,7 @@
     <Compile Include="Keylistener.fs" />
     <Compile Include="ListWidget.fs" />
     <Compile Include="Numbers.fs" />
+    <Compile Include="Log.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
