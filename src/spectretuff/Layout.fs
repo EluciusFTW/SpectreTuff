@@ -30,3 +30,15 @@ module Layout =
 
   let show = setVisibility true
   let hide = setVisibility false
+
+  let withRatio ratio (layout: Layout) =
+    layout.Ratio <- ratio
+    layout
+
+  let withMinimumSize size (layout: Layout) =
+    layout.MinimumSize <- size
+    layout
+
+  let withFixedSize (size: int option) (layout: Layout) =
+    layout.Size <- Option.toNullable size
+    layout
