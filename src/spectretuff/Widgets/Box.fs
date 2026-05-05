@@ -15,6 +15,10 @@ module Box =
   let withTitle title =
     withBoxTitle (BoxTitle(TextLine(TextSpan title), TitlePosition.Top, Justify.Left))
 
-  let withBorder (box: BoxWidget) border =
+  let withBorder border (box: BoxWidget) =
     box.Border <- border
+    box
+
+  let withInnerWidget widget (box: BoxWidget) = 
+    box.Inner <- widget
     box

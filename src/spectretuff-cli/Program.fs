@@ -69,8 +69,18 @@ let mainLayout =
   |]
 
 let widgets = [
-  "green", box Spectre.Console.Color.Green |> withTitle "Green Box"
-  "red", box Spectre.Console.Color.Red |> withTitle "Other Box"
+  "green",
+  box Spectre.Console.Color.Green
+  |> withTitle "Green Box"
+  |> withInnerWidget (ofString "one")
+  "red",
+  box Spectre.Console.Color.Red
+  |> withTitle "Outer Box"
+  |> withInnerWidget (
+    box Spectre.Console.Color.Purple
+    |> withTitle "Inner Box"
+    |> withInnerWidget (ofString "one")
+  )
 ]
 
 let view (renderer: Renderer) model dispatch =
