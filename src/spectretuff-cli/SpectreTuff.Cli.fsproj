@@ -18,6 +18,7 @@
     <Compile Include="ListWidget.fs" />
     <Compile Include="Numbers.fs" />
     <Compile Include="Log.fs" />
+    <Compile Include="Application.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
