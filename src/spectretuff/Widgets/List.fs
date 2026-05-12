@@ -35,8 +35,12 @@ module Lists =
       | None -> System.Nullable()
     list
 
-  let withWrapAround (enable: bool) (list: ListWidget<'t>) =
-    list.WrapAround <- enable
+  let wrapAround (list: ListWidget<'t>) =
+    list.WrapAround <- true
+    list
+
+  let noWrapAround (list: ListWidget<'t>) =
+    list.WrapAround <- false
     list
 
   let selectedIndex index list =

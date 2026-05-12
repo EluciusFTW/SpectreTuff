@@ -45,7 +45,7 @@ let view (model: Model) (ctx: RenderContext) (area: Rectangle) =
     listWidget model.items
     |> selectedIndex model.index
     |> withHighlightSymbol (LineExtensions.FromString ("> ", Style Color.Blue))
-    |> withWrapAround true
+    |> wrapAround
 
   let listArea = Rectangle (area.X, area.Y, area.Width, area.Height - 1)
   RenderContextExtensions.Render (ctx, listW, listArea)

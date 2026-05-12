@@ -42,12 +42,20 @@ module Tables =
     table.HeaderStyle <- style
     table
 
-  let withShowHeader show (table: TableWidget<'t>) =
-    table.ShowHeader <- show
+  let showHeader (table: TableWidget<'t>) =
+    table.ShowHeader <- true
     table
 
-  let withShowSeparator show (table: TableWidget<'t>) =
-    table.ShowSeparator <- show
+  let hideHeader (table: TableWidget<'t>) =
+    table.ShowHeader <- false
+    table
+
+  let showSeparator (table: TableWidget<'t>) =
+    table.ShowSeparator <- true
+    table
+
+  let hideSeparator (table: TableWidget<'t>) =
+    table.ShowSeparator <- false
     table
 
   let withColumnSpacing spacing (table: TableWidget<'t>) =
@@ -61,8 +69,12 @@ module Tables =
       | None -> System.Nullable ()
     table
 
-  let withWrapAround enable (table: TableWidget<'t>) =
-    table.WrapAround <- enable
+  let wrapAround (table: TableWidget<'t>) =
+    table.WrapAround <- true
+    table
+
+  let noWrapAround (table: TableWidget<'t>) =
+    table.WrapAround <- false
     table
 
   let selectedIndex index table =
