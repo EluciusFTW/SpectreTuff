@@ -19,5 +19,6 @@
     <Compile Include="Widgets/Tabs.fs" />
     <Compile Include="Widgets/TextBox.fs" />
     <Compile Include="Widgets/Spinner.fs" />
+    <Compile Include="Widgets/ProgressBar.fs" />
   </ItemGroup>
 </Project>
