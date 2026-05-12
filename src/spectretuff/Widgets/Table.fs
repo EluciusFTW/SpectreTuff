@@ -2,6 +2,7 @@ namespace SpectreTuff.Widgets
 
 open Spectre.Tui
 open System.Collections.Generic
+open SpectreTuff
 
 [<AutoOpen>]
 module Tables =
@@ -34,12 +35,12 @@ module Tables =
     widget.Columns.AddRange columns
     widget
 
-  let withHighlightStyle style (table: TableWidget<'t>) =
-    table.HighlightStyle <- style
+  let withHighlightLook look (table: TableWidget<'t>) =
+    table.HighlightStyle <- Look.toStyle look
     table
 
-  let withHeaderStyle style (table: TableWidget<'t>) =
-    table.HeaderStyle <- style
+  let withHeaderLook look (table: TableWidget<'t>) =
+    table.HeaderStyle <- Look.toStyle look
     table
 
   let showHeader (table: TableWidget<'t>) =

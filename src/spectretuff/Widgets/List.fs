@@ -3,6 +3,7 @@ namespace SpectreTuff.Widgets
 open Spectre.Console
 open Spectre.Tui
 open System.Collections.Generic
+open SpectreTuff
 
 type ListItem(text: string) =
   interface IListWidgetItem with
@@ -20,8 +21,8 @@ module Lists =
   let listWidget<'t when 't :> IListWidgetItem> (items: 't seq) =
     ListWidget<'t>(List<'t>(items))
 
-  let withHighlightStyle style (list: ListWidget<'t>) =
-    list.HighlightStyle <- style
+  let withHighlightLook look (list: ListWidget<'t>) =
+    list.HighlightStyle <- Look.toStyle look
     list
 
   let withHighlightSymbol symbol (list: ListWidget<'t>) =

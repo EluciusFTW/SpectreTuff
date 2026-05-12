@@ -2,6 +2,7 @@ namespace SpectreTuff.Widgets
 
 open Spectre.Tui
 open System.Collections.Generic
+open SpectreTuff
 
 type TabItem(text: string) =
   interface ITabWidgetItem with
@@ -13,8 +14,8 @@ module Tabs =
   let tabsWidget<'t when 't :> ITabWidgetItem> (items: 't seq) =
     TabsWidget<'t>(List<'t>(items))
 
-  let withHighlightStyle style (tabs: TabsWidget<'t>) =
-    tabs.HighlightStyle <- style
+  let withHighlightLook look (tabs: TabsWidget<'t>) =
+    tabs.HighlightStyle <- Look.toStyle look
     tabs
 
   let withSeparator (separator: TextSpan) (tabs: TabsWidget<'t>) =

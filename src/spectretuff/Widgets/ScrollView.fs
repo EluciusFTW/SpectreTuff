@@ -1,6 +1,7 @@
 namespace SpectreTuff.Widgets
 
 open Spectre.Tui
+open SpectreTuff
 
 [<AutoOpen>]
 module ScrollViews =
@@ -20,10 +21,10 @@ module ScrollViews =
     scrollView.ContentSize <- System.Nullable (Size (width, height))
     scrollView
 
-  let withScrollbarStyle style (scrollView: ScrollViewWidget) =
-    scrollView.ScrollbarStyle <- style
+  let withScrollbarLook look (scrollView: ScrollViewWidget) =
+    scrollView.ScrollbarStyle <- Look.toStyle look
     scrollView
 
-  let withScrollbarThumbStyle style (scrollView: ScrollViewWidget) =
-    scrollView.ScrollbarThumbStyle <- style
+  let withScrollbarThumbLook look (scrollView: ScrollViewWidget) =
+    scrollView.ScrollbarThumbStyle <- Look.toStyle look
     scrollView

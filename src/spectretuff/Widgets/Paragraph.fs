@@ -2,6 +2,7 @@ namespace SpectreTuff.Widgets
 
 open Spectre.Tui
 open System.Collections.Generic
+open SpectreTuff
 
 [<AutoOpen>]
 module Paragraphs =
@@ -15,8 +16,8 @@ module Paragraphs =
   let ofMarkup text =
     ParagraphExtensions.FromMarkup text
 
-  let withStyle style (paragraph: Paragraph) =
-    paragraph.Style <- style
+  let withLook look (paragraph: Paragraph) =
+    paragraph.Style <- Look.toStyle look
     paragraph
 
   let withHorizontalAlignment alignment (paragraph: Paragraph) =

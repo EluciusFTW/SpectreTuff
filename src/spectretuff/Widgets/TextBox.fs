@@ -1,6 +1,7 @@
 namespace SpectreTuff.Widgets
 
 open Spectre.Tui
+open SpectreTuff
 
 [<AutoOpen>]
 module TextBoxes =
@@ -29,10 +30,10 @@ module TextBoxes =
     textBox.IsReadOnly <- enable
     textBox
 
-  let withStyle style (textBox: TextBoxWidget) =
-    textBox.Style <- style
+  let withLook look (textBox: TextBoxWidget) =
+    textBox.Style <- Look.toStyle look
     textBox
 
-  let withPlaceholderStyle style (textBox: TextBoxWidget) =
-    textBox.PlaceholderStyle <- style
+  let withPlaceholderLook look (textBox: TextBoxWidget) =
+    textBox.PlaceholderStyle <- Look.toStyle look
     textBox
