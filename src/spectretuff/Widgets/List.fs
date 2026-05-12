@@ -16,7 +16,7 @@ type ListItem(text: string) =
       Text(LineExtensions.FromString(text, style))
 
 [<AutoOpen>]
-module ListWidgetFSharp =
+module Lists =
   let listWidget<'t when 't :> IListWidgetItem> (items: 't seq) =
     ListWidget<'t>(List<'t>(items))
 
@@ -33,7 +33,6 @@ module ListWidgetFSharp =
       match index with
       | Some i -> System.Nullable i
       | None -> System.Nullable()
-
     list
 
   let withWrapAround (enable: bool) (list: ListWidget<'t>) =
