@@ -18,5 +18,6 @@
     <Compile Include="Widgets/ScrollView.fs" />
     <Compile Include="Widgets/Tabs.fs" />
     <Compile Include="Widgets/TextBox.fs" />
+    <Compile Include="Widgets/Spinner.fs" />
   </ItemGroup>
 </Project>
