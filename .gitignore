@@ -10,6 +10,9 @@
 *.ncrunchsolution
 *.log.*
 
+# Agent stuff
+PLAN.md
+
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
