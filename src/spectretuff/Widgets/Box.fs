@@ -1,12 +1,13 @@
 namespace SpectreTuff.Widgets
 
 open Spectre.Tui
+open SpectreTuff
 
 [<AutoOpen>]
 module Box =
 
-  let box color =
-    BoxWidget(Spectre.Console.Style(color, System.Nullable(), System.Nullable()))
+  let box (look: Look) =
+    BoxWidget(Look.toStyle look)
 
   let withBoxTitle (title: BoxTitle) (box: BoxWidget) =
     box.Titles.Add title

@@ -1,6 +1,8 @@
 module Counter
 
+open Spectre.Console
 open Spectre.Tui
+open SpectreTuff
 open SpectreTuff.View
 open SpectreTuff.Widgets
 
@@ -25,10 +27,10 @@ let private counterInfo model =
   |> withMode TextBoxMode.MultiLine
 
 let private widget model =
-  box Spectre.Console.Color.Red
+  box (Look.fromColor Color.Red)
   |> withTitle "Outer Box"
   |> withInnerWidget (
-    box Spectre.Console.Color.Purple
+    box (Look.fromColor Color.Purple)
     |> withTitle "Inner Box"
     |> withInnerWidget (counterInfo model)
   )

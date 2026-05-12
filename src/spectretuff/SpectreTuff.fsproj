@@ -9,6 +9,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="Look.fs" />
     <Compile Include="View.fs" />
     <Compile Include="Layout.fs" />
     <Compile Include="Widgets/Box.fs" />

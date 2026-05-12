@@ -1,6 +1,8 @@
 module Log
 
+open Spectre.Console
 open Spectre.Tui
+open SpectreTuff
 open SpectreTuff.Layout
 open SpectreTuff.View
 open SpectreTuff.Widgets
@@ -20,5 +22,5 @@ let view (model: Model) (ctx: RenderContext) (area: Rectangle) =
   let logView = scrollView content
   logView.ScrollToBottom ()
   ctx.Render (
-    box Spectre.Console.Color.Grey |> withTitle "Log" |> withInnerWidget logView,
+    box (Look.fromColor Color.Grey) |> withTitle "Log" |> withInnerWidget logView,
     area)
