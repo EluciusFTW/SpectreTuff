@@ -5,7 +5,7 @@
   </PropertyGroup>
   
   <ItemGroup>
-    <PackageReference Include="Spectre.Tui" Version="0.11.0" />
+    <PackageReference Include="Spectre.Tui" Version="0.13.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -17,5 +17,6 @@
     <Compile Include="Widgets/Table.fs" />
     <Compile Include="Widgets/ScrollView.fs" />
     <Compile Include="Widgets/Tabs.fs" />
+    <Compile Include="Widgets/TextBox.fs" />
   </ItemGroup>
 </Project>
