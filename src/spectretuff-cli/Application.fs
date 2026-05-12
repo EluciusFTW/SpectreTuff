@@ -6,7 +6,7 @@ open SpectreTuff.Layout
 open SpectreTuff.Widgets
 
 type Model = {
-  LogicModel: Logic.Model
+  CounterModel: Counter.Model
   ListModel: ListWidget.Model
   ExitEvent: System.Threading.ManualResetEventSlim
   LogModel: Log.Model
@@ -14,7 +14,7 @@ type Model = {
 
 type Msg =
   | InputMsg of Input.Msg
-  | LogicMsg of Logic.Msg
+  | CounterMsg of Counter.Msg
   | ListMsg of ListWidget.Msg
   | Exit
 
@@ -34,12 +34,12 @@ type Application(model: Model) =
     member _.Render(context: RenderContext) =
       let getPort = getPort context.Viewport mainLayout
       ListWidget.view model.ListModel context (getPort "left")
-      Logic.view model.LogicModel context (getPort "right")
+      Counter.view model.CounterModel context (getPort "right")
       Log.view model.LogModel context (getPort "log")
 
 let init () =
   {
-    LogicModel = { Count = 0 }
+    CounterModel = { Count = 0 }
     ListModel = {
       index = 0
       items = [
@@ -61,16 +61,21 @@ let update msg (model: Model) =
     match inputMsg with
     | Input.KeyPressed key ->
       match key.Key with
-      | System.ConsoleKey.D1 -> model, Cmd.ofMsg (LogicMsg(Logic.Increment 1))
-      | System.ConsoleKey.D5 -> model, Cmd.ofMsg (LogicMsg(Logic.Increment 5))
-      | System.ConsoleKey.D2 -> model, Cmd.ofMsg (LogicMsg(Logic.Increment 2))
+      | System.ConsoleKey.D1 -> model, Cmd.ofMsg (CounterMsg(Counter.Increment 1))
+      | System.ConsoleKey.D5 -> model, Cmd.ofMsg (CounterMsg(Counter.Increment 5))
+      | System.ConsoleKey.D2 -> model, Cmd.ofMsg (CounterMsg(Counter.Increment 2))
       | System.ConsoleKey.UpArrow -> model, Cmd.ofMsg (ListMsg ListWidget.Up)
       | System.ConsoleKey.DownArrow -> model, Cmd.ofMsg (ListMsg ListWidget.Down)
       | System.ConsoleKey.Q -> model, Cmd.ofMsg Exit
       | _ -> model, Cmd.none
-  | LogicMsg logicMsg ->
-    let logicModel, command = Logic.update logicMsg model.LogicModel
-    { model with LogicModel = logicModel }, command
+  | CounterMsg counterMsg ->
+    let counterModel, command = Counter.update counterMsg model.CounterModel
+
+    {
+      model with
+          CounterModel = counterModel
+    },
+    command
   | Exit ->
     model.ExitEvent.Set()
     model, []
