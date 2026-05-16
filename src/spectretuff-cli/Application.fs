@@ -9,6 +9,7 @@ open SpectreTuff.Widgets
 type Model = {
   CounterModel: Counter.Model
   ListModel: ListWidget.Model
+  TimerModel: Timer.Model
   ExitEvent: Threading.ManualResetEventSlim
   LogModel: Log.Model
   Focus: int
@@ -18,6 +19,7 @@ type Msg =
   | InputMsg of Input.Msg
   | CounterMsg of Counter.Msg
   | ListMsg of ListWidget.Msg
+  | TimerMsg of Timer.Msg
   | Exit
 
 type Panel = {
@@ -37,7 +39,7 @@ let private mainLayout =
   |> splitHorizontally [|
     layout "top"
     |> withRatio 3
-    |> splitVertically [| layout "left"; layout "right" |]
+    |> splitVertically [| layout "left"; layout "center"; layout "right" |]
     layout "log" |> withRatio 1
   |]
 
@@ -70,6 +72,20 @@ let private buildPanels (model: Model) = [
         Some ({ model with CounterModel = m }, cmd)
       | _ -> None
   }
+  {
+    Number = 3
+    Title = "Timer"
+    LayoutSlot = "center"
+    Focused = model.Focus = 3
+    Widget = Timer.widget model.TimerModel
+    HandleKey = fun key -> Timer.handleKey key model.TimerModel |> Option.map TimerMsg
+    Update = fun msg model ->
+      match msg with
+      | TimerMsg tMsg ->
+        let m, cmd = Timer.update tMsg model.TimerModel
+        Some ({ model with TimerModel = m }, Cmd.map TimerMsg cmd)
+      | _ -> None
+  }
 ]
 
 type Application(model: Model) =
@@ -94,6 +110,7 @@ let init () =
         ListItem "Sandbox"
       ]
     }
+    TimerModel = Timer.init ()
     ExitEvent = exitEvent
     LogModel = Log.init ()
     Focus = 1
