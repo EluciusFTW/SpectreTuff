@@ -1,5 +1,6 @@
 module Application
 
+open System
 open Elmish
 open Spectre.Tui
 open SpectreTuff.Layout
@@ -8,8 +9,9 @@ open SpectreTuff.Widgets
 type Model = {
   CounterModel: Counter.Model
   ListModel: ListWidget.Model
-  ExitEvent: System.Threading.ManualResetEventSlim
+  ExitEvent: Threading.ManualResetEventSlim
   LogModel: Log.Model
+  Focus: int
 }
 
 type Msg =
@@ -17,6 +19,16 @@ type Msg =
   | CounterMsg of Counter.Msg
   | ListMsg of ListWidget.Msg
   | Exit
+
+type Panel = {
+  Number: int
+  Title: string
+  LayoutSlot: string
+  Focused: bool
+  Widget: IWidget
+  HandleKey: ConsoleKeyInfo -> Msg option
+  Update: Msg -> Model -> (Model * Cmd<Msg>) option
+}
 
 let exitEvent = new System.Threading.ManualResetEventSlim false
 
@@ -29,12 +41,44 @@ let private mainLayout =
     layout "log" |> withRatio 1
   |]
 
+let private buildPanels (model: Model) = [
+  {
+    Number = 1
+    Title = "List"
+    LayoutSlot = "left"
+    Focused = model.Focus = 1
+    Widget = ListWidget.widget model.ListModel
+    HandleKey = ListWidget.handleKey >> Option.map ListMsg
+    Update = fun msg model ->
+      match msg with
+      | ListMsg lMsg ->
+        let m, cmd = ListWidget.update lMsg model.ListModel
+        Some ({ model with ListModel = m }, cmd)
+      | _ -> None
+  }
+  {
+    Number = 2
+    Title = "Counter"
+    LayoutSlot = "right"
+    Focused = model.Focus = 2
+    Widget = Counter.widget model.CounterModel
+    HandleKey = Counter.handleKey >> Option.map CounterMsg
+    Update = fun msg model ->
+      match msg with
+      | CounterMsg cMsg ->
+        let m, cmd = Counter.update cMsg model.CounterModel
+        Some ({ model with CounterModel = m }, cmd)
+      | _ -> None
+  }
+]
+
 type Application(model: Model) =
+  let panels = buildPanels model
   interface IWidget with
     member _.Render(context: RenderContext) =
       let getPort = getPort context.Viewport mainLayout
-      ListWidget.view model.ListModel context (getPort "left")
-      Counter.view model.CounterModel context (getPort "right")
+      for panel in panels do
+        context.Render(focusableBox panel.Title panel.Number panel.Focused panel.Widget, getPort panel.LayoutSlot)
       Log.view model.LogModel context (getPort "log")
 
 let init () =
@@ -52,36 +96,39 @@ let init () =
     }
     ExitEvent = exitEvent
     LogModel = Log.init ()
+    Focus = 1
   },
   []
 
+let private tryFocusNumber (key: ConsoleKeyInfo) =
+  if key.KeyChar >= '1' && key.KeyChar <= '9' then Some(int key.KeyChar - int '0')
+  else None
+
 let update msg (model: Model) =
+  let panels = buildPanels model
   match msg with
   | InputMsg inputMsg ->
     match inputMsg with
     | Input.KeyPressed key ->
       match key.Key with
-      | System.ConsoleKey.D1 -> model, Cmd.ofMsg (CounterMsg(Counter.Increment 1))
-      | System.ConsoleKey.D5 -> model, Cmd.ofMsg (CounterMsg(Counter.Increment 5))
-      | System.ConsoleKey.D2 -> model, Cmd.ofMsg (CounterMsg(Counter.Increment 2))
-      | System.ConsoleKey.UpArrow -> model, Cmd.ofMsg (ListMsg ListWidget.Up)
-      | System.ConsoleKey.DownArrow -> model, Cmd.ofMsg (ListMsg ListWidget.Down)
-      | System.ConsoleKey.Q -> model, Cmd.ofMsg Exit
-      | _ -> model, Cmd.none
-  | CounterMsg counterMsg ->
-    let counterModel, command = Counter.update counterMsg model.CounterModel
-
-    {
-      model with
-          CounterModel = counterModel
-    },
-    command
+      | ConsoleKey.Q -> model, Cmd.ofMsg Exit
+      | _ ->
+        match tryFocusNumber key with
+        | Some number when panels |> List.exists (fun p -> p.Number = number) ->
+          { model with Focus = number }, []
+        | _ ->
+          panels
+          |> List.tryFind (fun p -> p.Number = model.Focus)
+          |> Option.bind (fun p -> p.HandleKey key)
+          |> Option.map (fun msg -> model, Cmd.ofMsg msg)
+          |> Option.defaultValue (model, Cmd.none)
   | Exit ->
     model.ExitEvent.Set()
     model, []
-  | ListMsg listMsg ->
-    let listModel, _ = ListWidget.update listMsg model.ListModel
-    { model with ListModel = listModel }, []
+  | _ ->
+    panels
+    |> List.tryPick (fun p -> p.Update msg model)
+    |> Option.defaultValue (model, Cmd.none)
 
 let view (renderer: Renderer) (model: Model) dispatch =
   renderer.Draw(fun ctx _ -> ctx.Render(Application model))

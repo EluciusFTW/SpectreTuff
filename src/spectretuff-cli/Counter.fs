@@ -1,5 +1,6 @@
 module Counter
 
+open System
 open Spectre.Console
 open Spectre.Tui
 open SpectreTuff
@@ -11,6 +12,12 @@ type Model = { Count: int }
 type Msg =
   | Increment of int
   | Decrement
+
+let handleKey (key: ConsoleKeyInfo) : Msg option =
+  match key.KeyChar with
+  | '+' -> Some(Increment 1)
+  | '-' -> Some Decrement
+  | _ -> None
 
 let update msg model =
   match msg with
@@ -26,14 +33,7 @@ let private counterInfo model =
   |> textBox
   |> withMode TextBoxMode.MultiLine
 
-let private widget model =
-  box (Look.fromColor Color.Red)
-  |> withTitle "Outer Box"
-  |> withInnerWidget (
-    box (Look.fromColor Color.Purple)
-    |> withTitle "Inner Box"
-    |> withInnerWidget (counterInfo model)
-  )
-
-let view (model: Model) (ctx: RenderContext) (area: Rectangle) =
-  ctx.Render(widget model, area)
+let widget model =
+  box (Look.fromColor Color.Purple)
+  |> withTitle "Inner Box"
+  |> withInnerWidget (counterInfo model)

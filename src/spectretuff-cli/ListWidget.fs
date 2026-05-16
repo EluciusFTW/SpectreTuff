@@ -1,8 +1,9 @@
 module ListWidget
 
+open System
 open Spectre.Console
-open SpectreTuff.Widgets
 open Spectre.Tui
+open SpectreTuff.Widgets
 
 type Model = { index: int; items: ListItem list }
 
@@ -11,6 +12,12 @@ type Msg =
   | Down
   | Delete
   | Add
+
+let handleKey (key: ConsoleKeyInfo) : Msg option =
+  match key.Key with
+  | ConsoleKey.UpArrow -> Some Up
+  | ConsoleKey.DownArrow -> Some Down
+  | _ -> None
 
 let update msg model =
   let itemCount = model.items.Length
@@ -40,18 +47,8 @@ let update msg model =
       },
       []
 
-let view (model: Model) (ctx: RenderContext) (area: Rectangle) =
-  let listW =
-    listWidget model.items
-    |> selectedIndex model.index
-    |> withHighlightSymbol (LineExtensions.FromString ("> ", Style Color.Blue))
-    |> wrapAround
-
-  let listArea = Rectangle (area.X, area.Y, area.Width, area.Height - 1)
-  RenderContextExtensions.Render (ctx, listW, listArea)
-
-  let info = $"Selected: {model.index + 1} of {model.items.Length}"
-  RenderContextExtensions.Render (
-    ctx,
-    Text (LineExtensions.FromString (info, Style Color.Green)),
-    Rectangle (area.X, area.Bottom - 1, area.Width, 1))
+let widget (model: Model) =
+  listWidget model.items
+  |> selectedIndex model.index
+  |> withHighlightSymbol (LineExtensions.FromString ("> ", Style Color.Blue))
+  |> wrapAround
