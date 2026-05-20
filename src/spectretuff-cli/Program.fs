@@ -11,3 +11,4 @@ Elmish.Program.mkProgram Application.init Application.update (Application.view r
 |> Elmish.Program.run
 
 Application.exitEvent.Wait()
+Console.Clear()
