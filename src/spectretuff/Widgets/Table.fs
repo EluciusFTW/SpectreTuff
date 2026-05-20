@@ -30,7 +30,7 @@ module Tables =
 
   // Widget
 
-  let tableWidget (columns: TableColumn seq) (rows: 't seq) =
+  let table (columns: TableColumn seq) (rows: 't seq) =
     let widget = TableWidget<'t> (List<'t> rows)
     widget.Columns.AddRange columns
     widget

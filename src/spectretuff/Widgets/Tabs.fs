@@ -11,7 +11,7 @@ type TabItem(text: string) =
 
 [<AutoOpen>]
 module Tabs =
-  let tabsWidget<'t when 't :> ITabWidgetItem> (items: 't seq) =
+  let tabs<'t when 't :> ITabWidgetItem> (items: 't seq) =
     TabsWidget<'t>(List<'t>(items))
 
   let withHighlightLook look (tabs: TabsWidget<'t>) =

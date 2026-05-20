@@ -18,7 +18,7 @@ type ListItem(text: string) =
 
 [<AutoOpen>]
 module Lists =
-  let listWidget<'t when 't :> IListWidgetItem> (items: 't seq) =
+  let list<'t when 't :> IListWidgetItem> (items: 't seq) =
     ListWidget<'t>(List<'t>(items))
 
   let withHighlightLook look (list: ListWidget<'t>) =
