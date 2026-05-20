@@ -2,7 +2,6 @@ module Keymap
 
 open System
 open Spectre.Tui
-open SpectreTuff.Widgets
 
 type KeyTrigger =
   | CharKey of char
@@ -13,13 +12,22 @@ module KeyTrigger =
     | CharKey c -> key.KeyChar = c
     | SpecialKey k -> key.Key = k
 
-  let display = function
-    | CharKey c -> string c
-    | SpecialKey ConsoleKey.UpArrow -> "↑"
-    | SpecialKey ConsoleKey.DownArrow -> "↓"
-    | SpecialKey ConsoleKey.LeftArrow -> "←"
-    | SpecialKey ConsoleKey.RightArrow -> "→"
-    | SpecialKey k -> k.ToString()
+  let toKeyPress = function
+    | CharKey c -> Spectre.Tui.App.KeyPress.For c
+    | SpecialKey ConsoleKey.UpArrow -> Spectre.Tui.App.KeyPress.For Key.Up
+    | SpecialKey ConsoleKey.DownArrow -> Spectre.Tui.App.KeyPress.For Key.Down
+    | SpecialKey ConsoleKey.LeftArrow -> Spectre.Tui.App.KeyPress.For Key.Left
+    | SpecialKey ConsoleKey.RightArrow -> Spectre.Tui.App.KeyPress.For Key.Right
+    | SpecialKey ConsoleKey.Enter -> Spectre.Tui.App.KeyPress.For Key.Enter
+    | SpecialKey ConsoleKey.Escape -> Spectre.Tui.App.KeyPress.For Key.Escape
+    | SpecialKey ConsoleKey.Backspace -> Spectre.Tui.App.KeyPress.For Key.Backspace
+    | SpecialKey ConsoleKey.Tab -> Spectre.Tui.App.KeyPress.For Key.Tab
+    | SpecialKey ConsoleKey.Delete -> Spectre.Tui.App.KeyPress.For Key.Delete
+    | SpecialKey ConsoleKey.Home -> Spectre.Tui.App.KeyPress.For Key.Home
+    | SpecialKey ConsoleKey.End -> Spectre.Tui.App.KeyPress.For Key.End
+    | SpecialKey ConsoleKey.PageUp -> Spectre.Tui.App.KeyPress.For Key.PageUp
+    | SpecialKey ConsoleKey.PageDown -> Spectre.Tui.App.KeyPress.For Key.PageDown
+    | SpecialKey _ -> Spectre.Tui.App.KeyPress.For Key.None
 
 type KeyAction<'Msg> = {
   Description: string
@@ -50,10 +58,14 @@ module KeyBinding =
       if KeyTrigger.matches key b.Trigger then (b.Action model).Message
       else None)
 
-  let keys (bindings: KeyBinding<'Model, 'Msg> list) (model: 'Model) : KeyInfo list =
-    bindings
-    |> List.choose (fun b ->
-      let action = b.Action model
-      match action.Message with
-      | Some _ -> Some { Key = KeyTrigger.display b.Trigger; Description = action.Description }
-      | None -> None)
+  let toKeyMap (bindings: KeyBinding<'Model, 'Msg> list) (model: 'Model) : Spectre.Tui.App.IKeyMap =
+    { new Spectre.Tui.App.IKeyMap with
+        member _.Help() =
+          bindings |> Seq.choose (fun b ->
+            let action = b.Action model
+            match action.Message with
+            | Some _ ->
+              Some (Spectre.Tui.App.KeyBinding(
+                Keys = ResizeArray [KeyTrigger.toKeyPress b.Trigger],
+                Help = action.Description))
+            | None -> None) }

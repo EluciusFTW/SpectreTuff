@@ -79,4 +79,4 @@ let widget (model: Model) =
       member _.Render(ctx) =
         let port = getPort ctx.Viewport innerLayout
         ctx.Render(timerInfo model, port "info")
-        ctx.Render(KeyBinding.keys bindings model |> showKeys, port "keys") }
+        ctx.Render(help [KeyBinding.toKeyMap bindings model] |> leftAligned, port "keys") }

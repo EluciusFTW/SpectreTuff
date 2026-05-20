@@ -57,7 +57,7 @@ let private innerLayout =
 
 let widget (model: Model) =
   let listW =
-    listWidget model.items
+    list model.items
     |> selectedIndex model.index
     |> withHighlightSymbol (LineExtensions.FromString ("> ", Style Color.Blue))
     |> wrapAround
@@ -65,4 +65,4 @@ let widget (model: Model) =
       member _.Render(ctx) =
         let port = getPort ctx.Viewport innerLayout
         ctx.Render(listW, port "list")
-        ctx.Render(KeyBinding.keys bindings model |> showKeys, port "keys") }
+        ctx.Render(help [KeyBinding.toKeyMap bindings model] |> leftAligned, port "keys") }
