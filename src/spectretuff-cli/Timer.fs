@@ -3,7 +3,9 @@ module Timer
 open System
 open Elmish
 open Spectre.Tui
-open SpectreTuff.View
+open Keymap
+open SpectreTuff
+open SpectreTuff.Layout
 open SpectreTuff.Widgets
 
 let private defaultRemaining = TimeSpan.FromMinutes 10.0
@@ -23,14 +25,17 @@ type Msg =
   | Tick
   | Reset
 
-let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
-  match key.KeyChar with
-  | 's' ->
+let private bindings : KeyBinding<Model, Msg> list = [
+  KeyBinding.dynamic (CharKey 's') (fun model ->
     match model.State with
-    | Running -> Some Stop
-    | Stopped -> Some Start
-  | 'r' when model.State = Stopped -> Some Reset
-  | _ -> None
+    | Running -> { Description = "stop"; Message = Some Stop }
+    | Stopped -> { Description = "start"; Message = Some Start })
+  KeyBinding.dynamic (CharKey 'r') (fun model ->
+    { Description = "reset"; Message = if model.State = Stopped then Some Reset else None })
+]
+
+let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
+  KeyBinding.handleKey bindings key model
 
 let private tickCmd : Cmd<Msg> =
   Cmd.OfAsync.perform (fun () -> async { do! Async.Sleep 1000 }) () (fun () -> Tick)
@@ -55,15 +60,23 @@ let update msg model =
 let private formatTime (t: TimeSpan) =
   sprintf "%02d:%02d" (int t.TotalMinutes) t.Seconds
 
-let widget (model: Model) =
+let private timerInfo model =
   let stateLabel = match model.State with Running -> "running" | Stopped -> "stopped"
-  let startStop = match model.State with Running -> "[s] stop" | Stopped -> "[s] start"
-  let reset = if model.State = Stopped then "\n  [r] reset" else ""
   $"""
   {formatTime model.Remaining}
 
   {stateLabel}
-  {startStop}{reset}
   """
   |> textBox
   |> withMode TextBoxMode.MultiLine
+
+let private innerLayout =
+  layout "timer-inner"
+  |> splitHorizontally [| layout "info" |> withRatio 2; layout "keys" |> withRatio 1 |]
+
+let widget (model: Model) =
+  { new IWidget with
+      member _.Render(ctx) =
+        let port = getPort ctx.Viewport innerLayout
+        ctx.Render(timerInfo model, port "info")
+        ctx.Render(KeyBinding.keys bindings model |> showKeys, port "keys") }

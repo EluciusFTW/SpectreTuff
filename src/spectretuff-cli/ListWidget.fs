@@ -3,6 +3,8 @@ module ListWidget
 open System
 open Spectre.Console
 open Spectre.Tui
+open Keymap
+open SpectreTuff.Layout
 open SpectreTuff.Widgets
 
 type Model = { index: int; items: ListItem list }
@@ -13,11 +15,13 @@ type Msg =
   | Delete
   | Add
 
-let handleKey (key: ConsoleKeyInfo) : Msg option =
-  match key.Key with
-  | ConsoleKey.UpArrow -> Some Up
-  | ConsoleKey.DownArrow -> Some Down
-  | _ -> None
+let private bindings : KeyBinding<Model, Msg> list = [
+  KeyBinding.createSpecial ConsoleKey.UpArrow "up" Up
+  KeyBinding.createSpecial ConsoleKey.DownArrow "down" Down
+]
+
+let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
+  KeyBinding.handleKey bindings key model
 
 let update msg model =
   let itemCount = model.items.Length
@@ -47,8 +51,18 @@ let update msg model =
       },
       []
 
+let private innerLayout =
+  layout "list-inner"
+  |> splitHorizontally [| layout "list" |> withRatio 4; layout "keys" |> withRatio 1 |]
+
 let widget (model: Model) =
-  listWidget model.items
-  |> selectedIndex model.index
-  |> withHighlightSymbol (LineExtensions.FromString ("> ", Style Color.Blue))
-  |> wrapAround
+  let listW =
+    listWidget model.items
+    |> selectedIndex model.index
+    |> withHighlightSymbol (LineExtensions.FromString ("> ", Style Color.Blue))
+    |> wrapAround
+  { new IWidget with
+      member _.Render(ctx) =
+        let port = getPort ctx.Viewport innerLayout
+        ctx.Render(listW, port "list")
+        ctx.Render(KeyBinding.keys bindings model |> showKeys, port "keys") }

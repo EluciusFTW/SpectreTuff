@@ -50,7 +50,7 @@ let private buildPanels (model: Model) = [
     LayoutSlot = "left"
     Focused = model.Focus = 1
     Widget = ListWidget.widget model.ListModel
-    HandleKey = ListWidget.handleKey >> Option.map ListMsg
+    HandleKey = fun key -> ListWidget.handleKey key model.ListModel |> Option.map ListMsg
     Update = fun msg model ->
       match msg with
       | ListMsg lMsg ->
@@ -64,7 +64,7 @@ let private buildPanels (model: Model) = [
     LayoutSlot = "right"
     Focused = model.Focus = 2
     Widget = Counter.widget model.CounterModel
-    HandleKey = Counter.handleKey >> Option.map CounterMsg
+    HandleKey = fun key -> Counter.handleKey key model.CounterModel |> Option.map CounterMsg
     Update = fun msg model ->
       match msg with
       | CounterMsg cMsg ->
