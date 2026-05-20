@@ -51,18 +51,11 @@ let update msg model =
       },
       []
 
-let private innerLayout =
-  layout "list-inner"
-  |> splitHorizontally [| layout "list" |> withRatio 4; layout "keys" |> withRatio 1 |]
+let keyMap model = KeyBinding.toKeyMap bindings model
 
 let widget (model: Model) =
-  let listW =
-    list model.items
-    |> selectedIndex model.index
-    |> withHighlightSymbol (LineExtensions.FromString ("> ", Style Color.Blue))
-    |> wrapAround
-  { new IWidget with
-      member _.Render(ctx) =
-        let port = getPort ctx.Viewport innerLayout
-        ctx.Render(listW, port "list")
-        ctx.Render(help [KeyBinding.toKeyMap bindings model] |> leftAligned, port "keys") }
+  list model.items
+  |> selectedIndex model.index
+  |> withHighlightSymbol (LineExtensions.FromString ("> ", Style Color.Blue))
+  |> wrapAround
+  :> IWidget

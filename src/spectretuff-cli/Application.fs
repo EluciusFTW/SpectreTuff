@@ -31,9 +31,14 @@ type Panel = {
   LayoutSlot: string
   Focused: bool
   Widget: IWidget
+  KeyMap: IKeyMap
   HandleKey: ConsoleKeyInfo -> Msg option
   Update: Msg -> Model -> (Model * Cmd<Msg>) option
 }
+
+let private panelInnerLayout =
+  layout "panel-inner"
+  |> splitHorizontally [| layout "content"; layout "keys" |> withFixedSize (Some 1) |]
 
 let exitEvent = new System.Threading.ManualResetEventSlim false
 
@@ -54,62 +59,74 @@ let private globalKeyMap : IKeyMap =
         yield KeyBinding(Keys = ResizeArray [KeyPress.For 'l'], Help = "toggle log")
       } }
 
-let private buildPanels (model: Model) = [
-  {
-    Number = 1
-    Title = "List"
-    LayoutSlot = "left"
-    Focused = model.Focus = 1
-    Widget = ListWidget.widget model.ListModel
-    HandleKey = fun key -> ListWidget.handleKey key model.ListModel |> Option.map ListMsg
-    Update = fun msg model ->
-      match msg with
-      | ListMsg lMsg ->
-        let m, cmd = ListWidget.update lMsg model.ListModel
-        Some ({ model with ListModel = m }, cmd)
-      | _ -> None
-  }
-  {
-    Number = 2
-    Title = "Counter"
-    LayoutSlot = "right"
-    Focused = model.Focus = 2
-    Widget = Counter.widget model.CounterModel
-    HandleKey = fun key -> Counter.handleKey key model.CounterModel |> Option.map CounterMsg
-    Update = fun msg model ->
-      match msg with
-      | CounterMsg cMsg ->
-        let m, cmd = Counter.update cMsg model.CounterModel
-        Some ({ model with CounterModel = m }, cmd)
-      | _ -> None
-  }
-  {
-    Number = 3
-    Title = "Timer"
-    LayoutSlot = "center"
-    Focused = model.Focus = 3
-    Widget = Timer.widget model.TimerModel
-    HandleKey = fun key -> Timer.handleKey key model.TimerModel |> Option.map TimerMsg
-    Update = fun msg model ->
-      match msg with
-      | TimerMsg tMsg ->
-        let m, cmd = Timer.update tMsg model.TimerModel
-        Some ({ model with TimerModel = m }, Cmd.map TimerMsg cmd)
-      | _ -> None
-  }
-]
+let private buildPanels (model: Model) =
+  let focused n = model.Focus = n
+  [
+    {
+      Number = 1
+      Title = "List"
+      LayoutSlot = "left"
+      Focused = focused 1
+      Widget = ListWidget.widget model.ListModel
+      KeyMap = ListWidget.keyMap model.ListModel
+      HandleKey = fun key -> ListWidget.handleKey key model.ListModel |> Option.map ListMsg
+      Update = fun msg model ->
+        match msg with
+        | ListMsg lMsg ->
+          let m, cmd = ListWidget.update lMsg model.ListModel
+          Some ({ model with ListModel = m }, cmd)
+        | _ -> None
+    }
+    {
+      Number = 2
+      Title = "Counter"
+      LayoutSlot = "right"
+      Focused = focused 2
+      Widget = Counter.widget model.CounterModel
+      KeyMap = Counter.keyMap model.CounterModel
+      HandleKey = fun key -> Counter.handleKey key model.CounterModel |> Option.map CounterMsg
+      Update = fun msg model ->
+        match msg with
+        | CounterMsg cMsg ->
+          let m, cmd = Counter.update cMsg model.CounterModel
+          Some ({ model with CounterModel = m }, cmd)
+        | _ -> None
+    }
+    {
+      Number = 3
+      Title = "Timer"
+      LayoutSlot = "center"
+      Focused = focused 3
+      Widget = Timer.widget model.TimerModel
+      KeyMap = Timer.keyMap model.TimerModel
+      HandleKey = fun key -> Timer.handleKey key model.TimerModel |> Option.map TimerMsg
+      Update = fun msg model ->
+        match msg with
+        | TimerMsg tMsg ->
+          let m, cmd = Timer.update tMsg model.TimerModel
+          Some ({ model with TimerModel = m }, Cmd.map TimerMsg cmd)
+        | _ -> None
+    }
+  ]
 
 type Application(model: Model) =
   let panels = buildPanels model
   interface IWidget with
     member _.Render(context: RenderContext) =
       let lyt = mainLayout model
-      let getPort = getPort context.Viewport lyt
+      let slotPort = getPort context.Viewport lyt
       for panel in panels do
-        context.Render(focusableBox panel.Title panel.Number panel.Focused panel.Widget, getPort panel.LayoutSlot)
+        let composedWidget =
+          { new IWidget with
+              member _.Render(ctx) =
+                let port = getPort ctx.Viewport panelInnerLayout
+                ctx.Render(panel.Widget, port "content")
+                if panel.Focused then
+                  ctx.Render(help [panel.KeyMap] |> leftAligned, port "keys") }
+        context.Render(focusableBox panel.Title panel.Number panel.Focused composedWidget, slotPort panel.LayoutSlot)
       if model.LogVisible then
-        Log.view model.LogModel context (getPort "log")
-      context.Render(help [globalKeyMap] |> leftAligned, getPort "help")
+        Log.view model.LogModel context (slotPort "log")
+      context.Render(help [globalKeyMap] |> leftAligned, slotPort "help")
 
 let init () =
   {

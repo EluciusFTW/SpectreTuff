@@ -70,13 +70,6 @@ let private timerInfo model =
   |> textBox
   |> withMode TextBoxMode.MultiLine
 
-let private innerLayout =
-  layout "timer-inner"
-  |> splitHorizontally [| layout "info" |> withRatio 4; layout "keys" |> withRatio 1 |]
+let keyMap model = KeyBinding.toKeyMap bindings model
 
-let widget (model: Model) =
-  { new IWidget with
-      member _.Render(ctx) =
-        let port = getPort ctx.Viewport innerLayout
-        ctx.Render(timerInfo model, port "info")
-        ctx.Render(help [KeyBinding.toKeyMap bindings model] |> leftAligned, port "keys") }
+let widget (model: Model) = timerInfo model :> IWidget

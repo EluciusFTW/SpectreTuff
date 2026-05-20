@@ -35,17 +35,9 @@ let private counterInfo model =
   |> textBox
   |> withMode TextBoxMode.MultiLine
 
-let private innerLayout =
-  layout "counter-inner"
-  |> splitHorizontally [| layout "info" |> withRatio 4; layout "keys" |> withRatio 1 |]
+let keyMap model = KeyBinding.toKeyMap bindings model
 
 let widget (model: Model) =
-  let inner =
-    { new IWidget with
-        member _.Render(ctx) =
-          let port = getPort ctx.Viewport innerLayout
-          ctx.Render(counterInfo model, port "info")
-          ctx.Render(help [KeyBinding.toKeyMap bindings model] |> leftAligned, port "keys") }
   box (Look.fromColor Color.Purple)
   |> withTitle "Counter"
-  |> withInnerWidget inner
+  |> withInnerWidget (counterInfo model)
