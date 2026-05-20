@@ -5,11 +5,12 @@
   </PropertyGroup>
   
   <ItemGroup>
-    <PackageReference Include="Spectre.Tui" Version="0.13.0" />
+    <PackageReference Include="Spectre.Tui" Version="0.14.0" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="Look.fs" />
+    <Compile Include="Input.fs" />
     <Compile Include="View.fs" />
     <Compile Include="Text.fs" />
     <Compile Include="Layout.fs" />
@@ -20,7 +21,7 @@
     <Compile Include="Widgets/ScrollView.fs" />
     <Compile Include="Widgets/Tabs.fs" />
     <Compile Include="Widgets/TextBox.fs" />
-    <Compile Include="Widgets/KeyMap.fs" />
+    <Compile Include="Widgets/Help.fs" />
     <Compile Include="Widgets/Spinner.fs" />
     <Compile Include="Widgets/ProgressBar.fs" />
   </ItemGroup>
