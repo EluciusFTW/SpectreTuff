@@ -72,7 +72,7 @@ let private timerInfo model =
 
 let private innerLayout =
   layout "timer-inner"
-  |> splitHorizontally [| layout "info" |> withRatio 2; layout "keys" |> withRatio 1 |]
+  |> splitHorizontally [| layout "info" |> withRatio 4; layout "keys" |> withRatio 1 |]
 
 let widget (model: Model) =
   { new IWidget with

@@ -37,7 +37,7 @@ let private counterInfo model =
 
 let private innerLayout =
   layout "counter-inner"
-  |> splitHorizontally [| layout "info" |> withRatio 3; layout "keys" |> withRatio 1 |]
+  |> splitHorizontally [| layout "info" |> withRatio 4; layout "keys" |> withRatio 1 |]
 
 let widget (model: Model) =
   let inner =
