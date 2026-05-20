@@ -3,6 +3,7 @@ module Application
 open System
 open Elmish
 open Spectre.Tui
+open Spectre.Tui.App
 open SpectreTuff.Layout
 open SpectreTuff.Widgets
 
@@ -13,6 +14,7 @@ type Model = {
   ExitEvent: Threading.ManualResetEventSlim
   LogModel: Log.Model
   Focus: int
+  LogVisible: bool
 }
 
 type Msg =
@@ -20,6 +22,7 @@ type Msg =
   | CounterMsg of Counter.Msg
   | ListMsg of ListWidget.Msg
   | TimerMsg of Timer.Msg
+  | ToggleLog
   | Exit
 
 type Panel = {
@@ -34,14 +37,22 @@ type Panel = {
 
 let exitEvent = new System.Threading.ManualResetEventSlim false
 
-let private mainLayout =
+let private mainLayout (model: Model) =
   layout "main"
   |> splitHorizontally [|
     layout "top"
     |> withRatio 3
     |> splitVertically [| layout "left"; layout "center"; layout "right" |]
-    layout "log" |> withRatio 1
+    layout "log" |> withRatio 1 |> (if model.LogVisible then show else hide)
+    layout "help" |> withFixedSize (Some 1)
   |]
+
+let private globalKeyMap : IKeyMap =
+  { new IKeyMap with
+      member _.Help() = seq {
+        yield KeyBinding(Keys = ResizeArray [KeyPress.For 'q'], Help = "quit")
+        yield KeyBinding(Keys = ResizeArray [KeyPress.For 'l'], Help = "toggle log")
+      } }
 
 let private buildPanels (model: Model) = [
   {
@@ -92,10 +103,13 @@ type Application(model: Model) =
   let panels = buildPanels model
   interface IWidget with
     member _.Render(context: RenderContext) =
-      let getPort = getPort context.Viewport mainLayout
+      let lyt = mainLayout model
+      let getPort = getPort context.Viewport lyt
       for panel in panels do
         context.Render(focusableBox panel.Title panel.Number panel.Focused panel.Widget, getPort panel.LayoutSlot)
-      Log.view model.LogModel context (getPort "log")
+      if model.LogVisible then
+        Log.view model.LogModel context (getPort "log")
+      context.Render(help [globalKeyMap] |> leftAligned, getPort "help")
 
 let init () =
   {
@@ -114,6 +128,7 @@ let init () =
     ExitEvent = exitEvent
     LogModel = Log.init ()
     Focus = 1
+    LogVisible = true
   },
   []
 
@@ -129,6 +144,7 @@ let update msg (model: Model) =
     | Input.KeyPressed key ->
       match key.Key with
       | ConsoleKey.Q -> model, Cmd.ofMsg Exit
+      | ConsoleKey.L -> model, Cmd.ofMsg ToggleLog
       | _ ->
         match tryFocusNumber key with
         | Some number when panels |> List.exists (fun p -> p.Number = number) ->
@@ -139,6 +155,7 @@ let update msg (model: Model) =
           |> Option.bind (fun p -> p.HandleKey key)
           |> Option.map (fun msg -> model, Cmd.ofMsg msg)
           |> Option.defaultValue (model, Cmd.none)
+  | ToggleLog -> { model with LogVisible = not model.LogVisible }, []
   | Exit ->
     model.ExitEvent.Set()
     model, []
