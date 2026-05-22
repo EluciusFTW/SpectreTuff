@@ -7,5 +7,6 @@ type Data = {
   Goal: string
   StartedAt: int64
   Creator: string
-  ConnectedUsers: Dictionary<string, bool>
+  ConnectedUsers: Dictionary<string, string>
+  ActiveDriver: string
 }

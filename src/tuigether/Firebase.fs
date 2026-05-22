@@ -71,6 +71,7 @@ let createSession (client: FirebaseClient) (user: string) : Async<Result<string,
         Session.Data.StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         Session.Data.Creator = user
         Session.Data.ConnectedUsers = null
+        Session.Data.ActiveDriver = null
       }
 
       let! result = client.Child(sessionsPath).PostAsync(data) |> Async.AwaitTask
@@ -88,11 +89,16 @@ let deleteSession (client: FirebaseClient) (sessionId: string) : Async<Result<un
       return Error e.Message
   }
 
-let joinSession (client: FirebaseClient) (sessionId: string) (user: string) : Async<Result<unit, string>> =
+let joinSession
+  (client: FirebaseClient)
+  (sessionId: string)
+  (user: string)
+  (avatarName: string)
+  : Async<Result<unit, string>> =
   async {
     try
       do!
-        client.Child(sessionsPath).Child(sessionId).Child("connectedUsers").Child(user).PutAsync(true)
+        client.Child(sessionsPath).Child(sessionId).Child("connectedUsers").Child(user).PutAsync(avatarName :> obj)
         |> Async.AwaitTask
 
       return Ok()
@@ -110,6 +116,20 @@ let leaveSession (client: FirebaseClient) (sessionId: string) (user: string) : A
       return Ok()
     with e ->
       return Error e.Message
+  }
+
+let setActiveDriver (client: FirebaseClient) sessionId (user: string) =
+  async {
+    do!
+      client.Child(sessionsPath).Child(sessionId).Child("ActiveDriver").PutAsync(user)
+      |> Async.AwaitTask
+  }
+
+let clearActiveDriver (client: FirebaseClient) sessionId =
+  async {
+    do!
+      client.Child(sessionsPath).Child(sessionId).Child("ActiveDriver").DeleteAsync()
+      |> Async.AwaitTask
   }
 
 let private subscribe (client: FirebaseClient) (dispatch: Msg -> unit) : IDisposable =

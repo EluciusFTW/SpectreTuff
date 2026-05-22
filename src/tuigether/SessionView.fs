@@ -30,6 +30,8 @@ type Msg =
   | TimerMsg of Timer.Msg
   | SessionInfoMsg of SessionInfo.Msg
   | AvatarMsg of Avatar.Msg
+  | UpdateSession of Session.Data
+  | SetActiveDriver of string
 
 let init (user: string) (sessionId: string) (sessionData: Session.Data) = {
   SessionId = sessionId
@@ -41,12 +43,18 @@ let init (user: string) (sessionId: string) (sessionData: Session.Data) = {
   TodoList = TodoList.init ()
   Timer = Timer.init ()
   SessionInfo = SessionInfo.init sessionId sessionData "joining…"
-  Avatar = Avatar.init sessionData
+  Avatar = Avatar.init user sessionData
 }
 
 let update msg model =
   match msg with
-  | GoBack -> model, []
+  | GoBack ->
+    let clearCmd =
+      match model.Avatar.ActiveDriver with
+      | Some u when u = model.User -> Cmd.ofMsg (SetActiveDriver "")
+      | _ -> Cmd.none
+
+    model, clearCmd
   | JoinCompleted(Ok()) ->
     {
       model with
@@ -76,9 +84,48 @@ let update msg model =
   | SessionInfoMsg sMsg ->
     let m, cmd = SessionInfo.update sMsg model.SessionInfo
     { model with SessionInfo = m }, Cmd.map SessionInfoMsg cmd
+  | UpdateSession data ->
+    let m, cmd = Avatar.update (Avatar.UpdateSession data) model.Avatar
+
+    {
+      model with
+          Avatar = m
+          SessionData = data
+    },
+    Cmd.map AvatarMsg cmd
+  | AvatarMsg Avatar.BecomeDriver ->
+    let users = model.Avatar.ConnectedUsers
+
+    let nextDriver =
+      match users with
+      | [] -> None
+      | _ ->
+        match model.Avatar.ActiveDriver with
+        | None -> users |> List.tryHead
+        | Some current ->
+          let idx = users |> List.tryFindIndex (fun u -> u = current)
+
+          match idx with
+          | None -> users |> List.tryHead
+          | Some i -> Some users.[(i + 1) % users.Length]
+
+    let driverCmd =
+      match nextDriver with
+      | None -> Cmd.ofMsg (SetActiveDriver "")
+      | Some u -> Cmd.ofMsg (SetActiveDriver u)
+
+    {
+      model with
+          Avatar = {
+            model.Avatar with
+                ActiveDriver = nextDriver
+          }
+    },
+    driverCmd
   | AvatarMsg aMsg ->
     let m, cmd = Avatar.update aMsg model.Avatar
     { model with Avatar = m }, Cmd.map AvatarMsg cmd
+  | SetActiveDriver _ -> model, []
 
 let private outerBindings: KeyBinding<Model, Msg> list = [
   KeyBinding.dynamic (SpecialKey ConsoleKey.Backspace) (fun _ -> {
@@ -101,7 +148,10 @@ let private tryFocusNumber (key: ConsoleKeyInfo) =
   match key.KeyChar with
   | c when c >= '1' && c <= '9' ->
     let n = int c - int '0'
-    if n <= panelCount then Some(FocusPanel n) else None
+
+    match n <= panelCount with
+    | true -> Some(FocusPanel n)
+    | false -> None
   | _ -> None
 
 let capturesInput (model: Model) =
@@ -148,72 +198,75 @@ let private topRowLayout =
     layout "timer" |> withRatio 1
   |]
 
-let private bottomRowLayout =
-  layout "bottom-row"
-  |> splitVertically [| layout "info" |> withRatio 1; layout "avatar" |> withRatio 1 |]
+let private workAreaLayout =
+  layout "work-area"
+  |> splitHorizontally [| layout "top" |> withRatio 2; layout "bottom" |> withRatio 1 |]
 
 let private sessionLayout =
   layout "session"
-  |> splitHorizontally [| layout "top" |> withRatio 2; layout "bottom" |> withRatio 1 |]
+  |> splitVertically [|
+    layout "work-area" |> withRatio 1
+    layout "users-column" |> withFixedSize (Some 28)
+  |]
 
 let widget (model: Model) : IWidget =
   { new IWidget with
       member _.Render(ctx: RenderContext) =
         let slotPort = getPort ctx.Viewport sessionLayout
-        let topPort = getPort ctx.Viewport topRowLayout
-        let bottomPort = getPort ctx.Viewport bottomRowLayout
+
+        let focusStateFor n =
+          match model.Focus = n with
+          | true -> Focused
+          | false -> Unfocused
 
         ctx.Render(
           { new IWidget with
               member _.Render(ctx) =
-                let notesFocusState =
-                  match model.Focus, Notes.capturesInput model.Notes with
-                  | 1, true -> Capturing
-                  | 1, false -> Focused
-                  | _ -> Unfocused
-
-                let focusStateFor n =
-                  match model.Focus = n with
-                  | true -> Focused
-                  | false -> Unfocused
+                let workPort = getPort ctx.Viewport workAreaLayout
 
                 ctx.Render(
-                  focusableBox
-                    "Notes"
-                    1
-                    notesFocusState
-                    (withPanelKeys (Notes.widget model.Notes) (Notes.keyMap model.Notes) (model.Focus = 1)),
-                  topPort "notes"
-                )
+                  { new IWidget with
+                      member _.Render(ctx) =
+                        let topPort = getPort ctx.Viewport topRowLayout
 
-                ctx.Render(
-                  focusableBox
-                    "Todo"
-                    2
-                    (focusStateFor 2)
-                    (withPanelKeys (TodoList.widget model.TodoList) (TodoList.keyMap model.TodoList) (model.Focus = 2)),
-                  topPort "todo"
-                )
+                        let notesFocusState =
+                          match model.Focus, Notes.capturesInput model.Notes with
+                          | 1, true -> Capturing
+                          | 1, false -> Focused
+                          | _ -> Unfocused
 
-                ctx.Render(
-                  focusableBox
-                    "Timer"
-                    3
-                    (focusStateFor 3)
-                    (withPanelKeys (Timer.widget model.Timer) (Timer.keyMap model.Timer) (model.Focus = 3)),
-                  topPort "timer"
-                )
-          },
-          slotPort "top"
-        )
+                        ctx.Render(
+                          focusableBox
+                            "Notes"
+                            1
+                            notesFocusState
+                            (withPanelKeys (Notes.widget model.Notes) (Notes.keyMap model.Notes) (model.Focus = 1)),
+                          topPort "notes"
+                        )
 
-        ctx.Render(
-          { new IWidget with
-              member _.Render(ctx) =
-                let focusStateFor n =
-                  match model.Focus = n with
-                  | true -> Focused
-                  | false -> Unfocused
+                        ctx.Render(
+                          focusableBox
+                            "Todo"
+                            2
+                            (focusStateFor 2)
+                            (withPanelKeys
+                              (TodoList.widget model.TodoList)
+                              (TodoList.keyMap model.TodoList)
+                              (model.Focus = 2)),
+                          topPort "todo"
+                        )
+
+                        ctx.Render(
+                          focusableBox
+                            "Timer"
+                            3
+                            (focusStateFor 3)
+                            (withPanelKeys (Timer.widget model.Timer) (Timer.keyMap model.Timer) (model.Focus = 3)),
+                          topPort "timer"
+                        )
+                  },
+                  workPort "top"
+                )
 
                 ctx.Render(
                   focusableBox
@@ -224,18 +277,18 @@ let widget (model: Model) : IWidget =
                       (SessionInfo.widget model.SessionInfo)
                       (SessionInfo.keyMap model.SessionInfo)
                       (model.Focus = 4)),
-                  bottomPort "info"
-                )
-
-                ctx.Render(
-                  focusableBox
-                    "Users"
-                    5
-                    (focusStateFor 5)
-                    (withPanelKeys (Avatar.widget model.Avatar) (Avatar.keyMap model.Avatar) (model.Focus = 5)),
-                  bottomPort "avatar"
+                  workPort "bottom"
                 )
           },
-          slotPort "bottom"
+          slotPort "work-area"
+        )
+
+        ctx.Render(
+          focusableBox
+            "Users"
+            5
+            (focusStateFor 5)
+            (withPanelKeys (Avatar.widget model.Avatar) (Avatar.keyMap model.Avatar) (model.Focus = 5)),
+          slotPort "users-column"
         )
   }

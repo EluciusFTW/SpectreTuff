@@ -15,6 +15,7 @@ type Model = {
   Page: Page
   SessionList: SessionList.Model
   User: string
+  AvatarName: string
   Focus: int
   LogVisible: bool
   LogModel: Log.Model
@@ -26,6 +27,7 @@ type Msg =
   | SessionListMsg of SessionList.Msg
   | SessionViewMsg of SessionView.Msg
   | JoinCompleted of Result<unit, string>
+  | SetActiveDriverCompleted of Result<unit, string>
   | LeaveCompleted of Result<unit, string>
   | CreateCompleted of Result<string, string>
   | DeleteCompleted of Result<unit, string>
@@ -118,12 +120,30 @@ let private buildPanels (model: Model) : Panel list =
 let init (user: string) () =
   let listModel, listCmd = SessionList.init user ()
 
+  let avatarName =
+    let envName = System.Environment.GetEnvironmentVariable("TUIGETHER_AVATAR")
+
+    if System.String.IsNullOrWhiteSpace(envName) then
+      let idx = System.Random.Shared.Next(SpectreTuff.Widgets.Avatar.library.Length)
+      SpectreTuff.Widgets.Avatar.library.[idx].Name
+    else
+      let found =
+        SpectreTuff.Widgets.Avatar.library
+        |> List.tryFind (fun c -> System.String.Equals(c.Name, envName, System.StringComparison.OrdinalIgnoreCase))
+
+      match found with
+      | Some c -> c.Name
+      | None ->
+        let idx = System.Random.Shared.Next(SpectreTuff.Widgets.Avatar.library.Length)
+        SpectreTuff.Widgets.Avatar.library.[idx].Name
+
   {
     Page = SessionListPage
     SessionList = listModel
     User = user
+    AvatarName = avatarName
     Focus = 1
-    LogVisible = true
+    LogVisible = false
     LogModel = Log.init ()
   },
   Cmd.map SessionListMsg listCmd
@@ -154,7 +174,14 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
   | FirebaseMsg(Firebase.SessionsLoaded sessions) ->
     model, Cmd.ofMsg (SessionListMsg(SessionList.SessionsLoaded sessions))
   | FirebaseMsg(Firebase.SessionChanged(id, data)) ->
-    model, Cmd.ofMsg (SessionListMsg(SessionList.SessionChanged(id, data)))
+    let sessionListCmd = Cmd.ofMsg (SessionListMsg(SessionList.SessionChanged(id, data)))
+
+    let sessionViewCmd =
+      match model.Page with
+      | SessionViewPage vm when vm.SessionId = id -> Cmd.ofMsg (SessionViewMsg(SessionView.UpdateSession data))
+      | _ -> Cmd.none
+
+    model, Cmd.batch [ sessionListCmd; sessionViewCmd ]
   | FirebaseMsg(Firebase.SessionRemoved id) -> model, Cmd.ofMsg (SessionListMsg(SessionList.SessionRemoved id))
   | FirebaseMsg(Firebase.ConnectionError e) -> model, Cmd.ofMsg (SessionListMsg(SessionList.LoadError e))
 
@@ -171,7 +198,7 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
       model with
           Page = SessionViewPage viewModel
     },
-    Cmd.OfAsync.perform (fun () -> Firebase.joinSession client sessionId user) () JoinCompleted
+    Cmd.OfAsync.perform (fun () -> Firebase.joinSession client sessionId user model.AvatarName) () JoinCompleted
   | SessionListMsg SessionList.OpenSelected -> model, []
   | SessionListMsg lMsg ->
     let listModel, listCmd = SessionList.update lMsg model.SessionList
@@ -185,6 +212,23 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
       | _ -> []
 
     { model with Page = SessionListPage }, leaveCmd
+
+  | SessionViewMsg(SessionView.SetActiveDriver user) ->
+    match model.Page with
+    | SessionViewPage vm ->
+      let cmd =
+        if System.String.IsNullOrEmpty(user) then
+          Cmd.OfAsync.attempt (fun () -> Firebase.clearActiveDriver client vm.SessionId) () (fun _ ->
+            SetActiveDriverCompleted(Ok()))
+        else
+          Cmd.OfAsync.attempt (fun () -> Firebase.setActiveDriver client vm.SessionId user) () (fun _ ->
+            SetActiveDriverCompleted(Ok()))
+
+      Some(model, cmd)
+    | _ -> None
+    |> Option.defaultValue (model, [])
+
+  | SetActiveDriverCompleted _ -> model, []
 
   | JoinCompleted result ->
     match model.Page with
