@@ -240,7 +240,7 @@ let widget (model: Model) : IWidget =
     textBox model.FreetextContent
     |> withMode TextBoxMode.MultiLine
     |> (match model.InputMode with
-        | Insert -> focused
+        | Insert -> focused >> withCursorAtEnd
         | Normal -> unfocused)
     :> IWidget
   | List ->
