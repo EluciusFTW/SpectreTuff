@@ -25,7 +25,7 @@ module Box =
     box.Inner <- widget
     box
 
-  let focusableBox (title: string) (focusNumber: int) (isFocused: bool) (innerWidget: #IWidget) =
+  let focusableBox (title: string) (focusNumber: int) (isFocused: bool) (innerWidget: IWidget) =
     let look = if isFocused then Look.fromColor Color.Green else Look.fromColor Color.Grey
     box look
     |> withTitle $"[{focusNumber}] {title}"

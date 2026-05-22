@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\spectretuff\SpectreTuff.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Elmish" Version="5.0.2" />
+    <PackageReference Include="FirebaseDatabase.net" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Keylistener.fs" />
+    <Compile Include="Firebase.fs" />
+    <Compile Include="Log.fs" />
+    <Compile Include="Application.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+</Project>
