@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build src/**)",
+      "Bash(dotnet restore src/**)",
+      "Bash(dotnet fsi **)",
+      "Edit(src/**/*.fs)",
+      "Edit(src/**/*.fsproj)"
+    ]
+  }
+}
