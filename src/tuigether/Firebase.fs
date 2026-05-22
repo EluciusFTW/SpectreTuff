@@ -21,11 +21,53 @@ let createClient (cfg: Config) =
 
   new FirebaseClient(cfg.Url, options)
 
+let private adjectives = [|
+  "Wobbly"
+  "Grumpy"
+  "Suspicious"
+  "Caffeinated"
+  "Haunted"
+  "Slightly Damp"
+  "Overly Formal"
+  "Chaotic"
+  "Smugly Confident"
+  "Reluctant"
+  "Aggressively Mediocre"
+  "Mildly Panicked"
+  "Existentially Confused"
+  "Eerily Calm"
+  "Suspiciously Cheerful"
+|]
+
+let private nouns = [|
+  "Penguin"
+  "Rubber Duck"
+  "Spreadsheet"
+  "Turnip"
+  "Wizard"
+  "Bureaucrat"
+  "Raccoon"
+  "Algorithm"
+  "Fondue Pot"
+  "Yak"
+  "Sock Puppet"
+  "Time Machine"
+  "Sandwich"
+  "Narwhal"
+  "Kumquat"
+|]
+
+let private randomSessionName () =
+  let rng = Random()
+  let adj = adjectives.[rng.Next adjectives.Length]
+  let noun = nouns.[rng.Next nouns.Length]
+  sprintf "The %s %s" adj noun
+
 let createSession (client: FirebaseClient) : Async<Result<string, string>> =
   async {
     try
       let data = {
-        Session.Data.Goal = "New session"
+        Session.Data.Goal = randomSessionName ()
         Session.Data.StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         Session.Data.ConnectedUsers = null
       }

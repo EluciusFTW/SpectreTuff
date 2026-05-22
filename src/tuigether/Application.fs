@@ -15,6 +15,7 @@ type Model = {
   Page: Page
   User: string
   Focus: int
+  LogVisible: bool
   LogModel: Log.Model
 }
 
@@ -26,6 +27,7 @@ type Msg =
   | JoinCompleted of Result<unit, string>
   | LeaveCompleted of Result<unit, string>
   | CreateCompleted of Result<string, string>
+  | ToggleLog
   | Exit
 
 type Panel = {
@@ -45,18 +47,24 @@ let private panelInnerLayout =
   layout "panel-inner"
   |> splitHorizontally [| layout "content"; layout "keys" |> withFixedSize (Some 1) |]
 
-let private mainLayout =
+let private mainLayout (logVisible: bool) =
   layout "main"
   |> splitHorizontally [|
     layout "top"
-    |> splitVertically [| layout "content" |> withRatio 3; layout "log" |> withRatio 1 |]
+    |> splitVertically [|
+      layout "content" |> withRatio 3
+      layout "log" |> withRatio 1 |> (if logVisible then show else hide)
+    |]
     layout "help" |> withFixedSize (Some 1)
   |]
 
 let private globalKeyMap: IKeyMap =
   { new IKeyMap with
       member _.Help() =
-        seq { KeyBinding(Keys = ResizeArray [ KeyPress.For 'q' ], Help = "quit") }
+        seq {
+          KeyBinding(Keys = ResizeArray [ KeyPress.For 'q' ], Help = "quit")
+          KeyBinding(Keys = ResizeArray [ KeyPress.For 'l' ], Help = "toggle log")
+        }
   }
 
 let private buildPanels (model: Model) : Panel list =
@@ -111,6 +119,7 @@ let init (user: string) () =
     Page = SessionListPage listModel
     User = user
     Focus = 1
+    LogVisible = true
     LogModel = Log.init ()
   },
   Cmd.map SessionListMsg listCmd
@@ -120,6 +129,7 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
   | InputMsg(Input.KeyPressed key) ->
     match key.Key with
     | ConsoleKey.Q -> model, Cmd.ofMsg Exit
+    | ConsoleKey.L -> model, Cmd.ofMsg ToggleLog
     | _ ->
       buildPanels model
       |> List.tryFind (fun p -> p.Number = model.Focus)
@@ -170,6 +180,12 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
     | _ -> model, []
   | LeaveCompleted _ -> model, []
   | CreateCompleted _ -> model, []
+  | ToggleLog ->
+    {
+      model with
+          LogVisible = not model.LogVisible
+    },
+    []
 
   | Exit ->
     exitEvent.Set()
@@ -184,7 +200,7 @@ type AppView(model: Model) =
   interface IWidget with
     member _.Render(ctx: RenderContext) =
       let panels = buildPanels model
-      let slotPort = getPort ctx.Viewport mainLayout
+      let slotPort = getPort ctx.Viewport (mainLayout model.LogVisible)
 
       for panel in panels do
         let composedWidget =
@@ -197,7 +213,9 @@ type AppView(model: Model) =
 
         ctx.Render(focusableBox panel.Title panel.Number panel.Focused composedWidget, slotPort panel.LayoutSlot)
 
-      Log.view model.LogModel ctx (slotPort "log")
+      if model.LogVisible then
+        Log.view model.LogModel ctx (slotPort "log")
+
       ctx.Render(help [ globalKeyMap ] |> leftAligned, slotPort "help")
 
 let view (renderer: Renderer) (model: Model) _dispatch =
