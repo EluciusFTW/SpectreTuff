@@ -15,9 +15,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="Session.fs" />
     <Compile Include="Keylistener.fs" />
     <Compile Include="Firebase.fs" />
     <Compile Include="Log.fs" />
+    <Compile Include="SessionList.fs" />
+    <Compile Include="SessionView.fs" />
     <Compile Include="Application.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

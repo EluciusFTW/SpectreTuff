@@ -2,7 +2,6 @@ module Firebase
 
 open System
 open System.Threading.Tasks
-open Elmish
 open Firebase.Database
 open Firebase.Database.Query
 open Firebase.Database.Streaming
@@ -10,44 +9,89 @@ open Firebase.Database.Streaming
 type Config = { Url: string; Secret: string }
 
 type Msg =
-  | CountUpdated of int
+  | SessionsLoaded of (string * Session.Data) list
+  | SessionChanged of string * Session.Data
+  | SessionRemoved of string
   | ConnectionError of string
 
-let private counterPath = "counter"
+let private sessionsPath = "sessions"
 
 let createClient (cfg: Config) =
-  let options =
-    FirebaseOptions(AuthTokenAsyncFactory = Func<Task<string>>(fun () -> Task.FromResult cfg.Secret))
+  let options = FirebaseOptions(AuthTokenAsyncFactory = Func<Task<string>>(fun () -> Task.FromResult cfg.Secret))
+
   new FirebaseClient(cfg.Url, options)
 
-let private subscribe (client: FirebaseClient) (dispatch: Msg -> unit) : IDisposable =
-  // Initial one-shot read: verifies auth and seeds counter node if missing.
-  // This also fires CountUpdated immediately so status flips from "connecting…".
+let createSession (client: FirebaseClient) : Async<Result<string, string>> =
   async {
     try
-      let! current = client.Child(counterPath).OnceSingleAsync<int>() |> Async.AwaitTask
-      dispatch (CountUpdated current)
-    with e -> dispatch (ConnectionError (sprintf "initial read failed: %s" e.Message))
+      let data = {
+        Session.Data.Goal = "New session"
+        Session.Data.StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        Session.Data.ConnectedUsers = null
+      }
+
+      let! result = client.Child(sessionsPath).PostAsync(data) |> Async.AwaitTask
+      return Ok result.Key
+    with e ->
+      return Error e.Message
+  }
+
+let joinSession (client: FirebaseClient) (sessionId: string) (user: string) : Async<Result<unit, string>> =
+  async {
+    try
+      do!
+        client.Child(sessionsPath).Child(sessionId).Child("connectedUsers").Child(user).PutAsync(true)
+        |> Async.AwaitTask
+
+      return Ok()
+    with e ->
+      return Error e.Message
+  }
+
+let leaveSession (client: FirebaseClient) (sessionId: string) (user: string) : Async<Result<unit, string>> =
+  async {
+    try
+      do!
+        client.Child(sessionsPath).Child(sessionId).Child("connectedUsers").Child(user).DeleteAsync()
+        |> Async.AwaitTask
+
+      return Ok()
+    with e ->
+      return Error e.Message
+  }
+
+let private subscribe (client: FirebaseClient) (dispatch: Msg -> unit) : IDisposable =
+  async {
+    try
+      let! sessions = client.Child(sessionsPath).OnceAsync<Session.Data>() |> Async.AwaitTask
+
+      sessions
+      |> Seq.map (fun o -> o.Key, o.Object)
+      |> Seq.toList
+      |> SessionsLoaded
+      |> dispatch
+    with e ->
+      dispatch (ConnectionError(sprintf "initial read failed: %s" e.Message))
   }
   |> Async.Start
 
-  let onNext (ev: FirebaseEvent<int>) =
-    try dispatch (CountUpdated ev.Object)
-    with e -> dispatch (ConnectionError e.Message)
-  let onError (e: exn) = dispatch (ConnectionError e.Message)
-  client
-    .Child(counterPath)
-    .AsObservable<int>()
-    .Subscribe(Action<FirebaseEvent<int>> onNext, Action<exn> onError)
-
-let increment (client: FirebaseClient) : Async<Result<unit, string>> =
-  async {
+  let onNext (ev: FirebaseEvent<Session.Data>) =
     try
-      let! current = client.Child(counterPath).OnceSingleAsync<int>() |> Async.AwaitTask
-      do! client.Child(counterPath).PutAsync(current + 1) |> Async.AwaitTask
-      return Ok ()
-    with e -> return Error e.Message
-  }
+      if not (String.IsNullOrEmpty ev.Key) && not (isNull (box ev.Object)) then
+        match ev.EventType with
+        | FirebaseEventType.Delete -> dispatch (SessionRemoved ev.Key)
+        | _ -> dispatch (SessionChanged(ev.Key, ev.Object))
+    with e ->
+      dispatch (ConnectionError e.Message)
 
-let subscription (client: FirebaseClient) (wrap: Msg -> 'appMsg) _ =
-  [ [ "firebase" ], fun dispatch -> subscribe client (wrap >> dispatch) ]
+  let onError (e: exn) =
+    dispatch (ConnectionError e.Message)
+
+  client
+    .Child(sessionsPath)
+    .AsObservable<Session.Data>()
+    .Subscribe(Action<FirebaseEvent<Session.Data>> onNext, Action<exn> onError)
+
+let subscription (client: FirebaseClient) (wrap: Msg -> 'appMsg) _ = [
+  [ "firebase" ], fun dispatch -> subscribe client (wrap >> dispatch)
+]
