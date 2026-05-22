@@ -45,7 +45,7 @@ let init () =
     LogModel = Log.init ()
   }, []
 
-let update (client: global.Firebase.Database.FirebaseClient) msg model =
+let update (client: Firebase.Database.FirebaseClient) msg model =
   match msg with
   | InputMsg (Input.KeyPressed key) ->
     let keyLabel = sprintf "Key=%A Char='%c'(%d)" key.Key key.KeyChar (int key.KeyChar)

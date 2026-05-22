@@ -20,7 +20,7 @@ let createClient (cfg: Config) =
     FirebaseOptions(AuthTokenAsyncFactory = Func<Task<string>>(fun () -> Task.FromResult cfg.Secret))
   new FirebaseClient(cfg.Url, options)
 
-let subscribe (client: FirebaseClient) (dispatch: Msg -> unit) : IDisposable =
+let private subscribe (client: FirebaseClient) (dispatch: Msg -> unit) : IDisposable =
   // Initial one-shot read: verifies auth and seeds counter node if missing.
   // This also fires CountUpdated immediately so status flips from "connecting…".
   async {
@@ -49,10 +49,5 @@ let increment (client: FirebaseClient) : Async<Result<unit, string>> =
     with e -> return Error e.Message
   }
 
-let withFirebaseSubscription
-    (client: FirebaseClient)
-    (wrap: Msg -> 'appMsg)
-    (program: Program<'arg, 'model, 'appMsg, 'view>) =
-  program
-  |> Program.withSubscription (fun _ ->
-    [ [ "firebase" ], fun dispatch -> subscribe client (wrap >> dispatch) ])
+let subscription (client: FirebaseClient) (wrap: Msg -> 'appMsg) _ =
+  [ [ "firebase" ], fun dispatch -> subscribe client (wrap >> dispatch) ]

@@ -26,6 +26,5 @@ let keyListener =
 
   sub
 
-let withKeyListener (wrap: Msg -> 'appMsg) (program: Program<'arg, 'model, 'appMsg, 'view>) =
-  program
-  |> Program.withSubscription (fun _ -> [ [ "keys" ], fun dispatch -> keyListener (wrap >> dispatch) ])
+let subscription (wrap: Msg -> 'appMsg) _ =
+  [ [ "keys" ], fun dispatch -> keyListener (wrap >> dispatch) ]
