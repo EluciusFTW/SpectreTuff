@@ -60,13 +60,15 @@ let applyConnectedUsers (connectedUsers: Dictionary<string, Session.UserPresence
       connectedUsers
       |> Seq.map (fun kv ->
         let presence = kv.Value
-        let mood = moodFromString presence.Mood
+        let avatarName: string = if isNull (presence :> obj) then null else presence.Avatar
+        let moodStr: string = if isNull (presence :> obj) then null else presence.Mood
+        let mood = moodFromString moodStr
 
         match kv.Key = model.CurrentUser.Name with
         | true -> { model.CurrentUser with Mood = mood }
         | false -> {
             Name = kv.Key
-            Creature = creatureByName presence.Avatar
+            Creature = creatureByName avatarName
             Mood = mood
           })
       |> Seq.toList
@@ -86,8 +88,55 @@ let applyConnectedUsers (connectedUsers: Dictionary<string, Session.UserPresence
             | Some d -> users |> List.tryFind (fun u -> u.Name = d.Name)
     }
 
-let init (currentUser: string) (data: Session.Data) =
-  let myCreature = resolveCreature ()
+let upsertConnectedUser (userName: string) (presence: Session.UserPresence) (model: Model) : Model =
+  let avatarName: string = if isNull (presence :> obj) then null else presence.Avatar
+  let moodStr: string = if isNull (presence :> obj) then null else presence.Mood
+  let mood = moodFromString moodStr
+
+  let updated =
+    match userName = model.CurrentUser.Name with
+    | true -> { model.CurrentUser with Mood = mood }
+    | false -> {
+        Name = userName
+        Creature = creatureByName avatarName
+        Mood = mood
+      }
+
+  let users =
+    match model.Users |> List.exists (fun u -> u.Name = userName) with
+    | true -> model.Users |> List.map (fun u -> if u.Name = userName then updated else u)
+    | false -> model.Users @ [ updated ]
+
+  let currentUser =
+    match userName = model.CurrentUser.Name with
+    | true -> updated
+    | false -> model.CurrentUser
+
+  {
+    model with
+        Users = users
+        CurrentUser = currentUser
+        ActiveDriver =
+          match model.ActiveDriver with
+          | None -> None
+          | Some d when d.Name = userName -> Some updated
+          | other -> other
+  }
+
+let removeConnectedUser (userName: string) (model: Model) : Model =
+  match userName = model.CurrentUser.Name with
+  | true -> model
+  | false -> {
+      model with
+          Users = model.Users |> List.filter (fun u -> u.Name <> userName)
+          ActiveDriver =
+            match model.ActiveDriver with
+            | Some d when d.Name = userName -> None
+            | other -> other
+    }
+
+let init (currentUser: string) (avatarName: string) (data: Session.Data) =
+  let myCreature = creatureByName avatarName
 
   let me = {
     Name = currentUser
@@ -159,13 +208,9 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
 let keyMap model =
   KeyBinding.toKeyMap bindings model
 
-let private driverLayout =
-  layout "av-root"
-  |> splitHorizontally [| layout "driver-area" |> withRatio 3; layout "others-area" |> withRatio 2 |]
-
-let private driverNameLayout =
-  layout "driver-with-name"
-  |> splitHorizontally [| layout "big-av"; layout "driver-lbl" |> withFixedSize (Some 1) |]
+let private withDriverLayout =
+  layout "av-with-driver"
+  |> splitHorizontally [| layout "driver-box" |> withFixedSize (Some 15); layout "others-area" |]
 
 let widget (model: Model) : IWidget =
   { new IWidget with
@@ -175,33 +220,40 @@ let widget (model: Model) : IWidget =
           | Empty -> Text.span "  "
           | Filled color -> Text.styledSpan (System.Nullable(Style color)) "██"
 
-        let renderSmall (user: User) =
+        let bigLinesWithName (user: User) =
+          let nameLine = Text.line [ Text.span user.Name ]
+
           let avatarLines =
-            user.Creature.SmallRows
+            user.Creature.Rows user.Mood
             |> List.map (fun row -> row |> List.map renderCell |> Text.line)
 
-          let nameLine = Text.line [ Text.span user.Name ]
-          avatarLines @ [ nameLine ]
+          nameLine :: avatarLines
 
         match model.ActiveDriver with
         | None ->
-          let lines = model.Users |> List.collect renderSmall
+          let lines = model.Users |> List.collect bigLinesWithName
           context.Render(paragraph lines |> withHorizontalAlignment Justify.Center, context.Viewport)
 
         | Some driverUser ->
-          let port = getPort context.Viewport driverLayout
-          let driverPort = getPort (port "driver-area") driverNameLayout
+          let port = getPort context.Viewport withDriverLayout
 
-          context.Render(avatar driverUser.Mood driverUser.Creature :> IWidget, driverPort "big-av")
+          let driverContent =
+            { new IWidget with
+                member _.Render(ctx: RenderContext) =
+                  ctx.Render(
+                    paragraph (bigLinesWithName driverUser)
+                    |> withHorizontalAlignment Justify.Center,
+                    ctx.Viewport
+                  )
+            }
 
-          context.Render(
-            paragraph [ Text.line [ Text.span driverUser.Name ] ]
-            |> withHorizontalAlignment Justify.Center,
-            driverPort "driver-lbl"
-          )
+          context.Render(box Look.empty |> withTitle "Driver" |> withInnerWidget driverContent, port "driver-box")
 
           let others = model.Users |> List.filter (fun u -> u.Name <> driverUser.Name)
-          let otherLines = others |> List.collect renderSmall
 
-          context.Render(paragraph otherLines |> withHorizontalAlignment Justify.Center, port "others-area")
+          context.Render(
+            paragraph (others |> List.collect bigLinesWithName)
+            |> withHorizontalAlignment Justify.Center,
+            port "others-area"
+          )
   }

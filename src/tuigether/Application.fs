@@ -187,6 +187,18 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
       []
     | _ -> model, []
 
+  | FirebaseMsg(Firebase.ConnectedUserChanged(sessionId, user, presence)) ->
+    match model.Page with
+    | SessionViewPage vm when vm.SessionId = sessionId ->
+      model, Cmd.ofMsg (SessionViewMsg(SessionView.UpsertConnectedUser(user, presence)))
+    | _ -> model, []
+
+  | FirebaseMsg(Firebase.ConnectedUserRemoved(sessionId, user)) ->
+    match model.Page with
+    | SessionViewPage vm when vm.SessionId = sessionId ->
+      model, Cmd.ofMsg (SessionViewMsg(SessionView.RemoveConnectedUser user))
+    | _ -> model, []
+
   | SessionListMsg SessionList.CreateNew ->
     model, Cmd.OfAsync.perform (fun () -> Firebase.createSession client user) () CreateCompleted
   | SessionListMsg SessionList.DeleteSelected when not model.SessionList.Sessions.IsEmpty ->
@@ -194,7 +206,7 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
     model, Cmd.OfAsync.perform (fun () -> Firebase.deleteSession client sessionId) () DeleteCompleted
   | SessionListMsg SessionList.OpenSelected when not model.SessionList.Sessions.IsEmpty ->
     let sessionId, sessionData = model.SessionList.Sessions.[model.SessionList.SelectedIndex]
-    let viewModel = SessionView.init user sessionId sessionData
+    let viewModel = SessionView.init user model.AvatarName sessionId sessionData
 
     {
       model with

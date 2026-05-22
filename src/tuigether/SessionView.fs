@@ -34,9 +34,11 @@ type Msg =
   | SetActiveDriver of string
   | SetUserMood of Mood
   | WidgetStateLoaded of Session.WidgetState option
+  | UpsertConnectedUser of string * Session.UserPresence
+  | RemoveConnectedUser of string
   | StateSaved
 
-let init (user: string) (sessionId: string) (sessionData: Session.Data) = {
+let init (user: string) (avatarName: string) (sessionId: string) (sessionData: Session.Data) = {
   SessionId = sessionId
   SessionData = sessionData
   User = user
@@ -46,7 +48,7 @@ let init (user: string) (sessionId: string) (sessionData: Session.Data) = {
   TodoList = TodoList.init ()
   Timer = Timer.init ()
   SessionInfo = SessionInfo.init sessionId sessionData "joining…"
-  Avatar = Avatar.init user sessionData
+  Avatar = Avatar.init user avatarName sessionData
 }
 
 let update msg model =
@@ -212,6 +214,18 @@ let update msg model =
     },
     timerCmd
   | WidgetStateLoaded None -> model, []
+  | UpsertConnectedUser(user, presence) ->
+    {
+      model with
+          Avatar = Avatar.upsertConnectedUser user presence model.Avatar
+    },
+    []
+  | RemoveConnectedUser user ->
+    {
+      model with
+          Avatar = Avatar.removeConnectedUser user model.Avatar
+    },
+    []
   | StateSaved -> model, []
 
 let applyWidgetState (state: Session.WidgetState) (model: Model) =

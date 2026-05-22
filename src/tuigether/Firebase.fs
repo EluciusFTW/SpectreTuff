@@ -14,6 +14,8 @@ type Msg =
   | SessionRemoved of string
   | ConnectionError of string
   | WidgetStateChanged of string * Session.WidgetState option
+  | ConnectedUserChanged of sessionId: string * user: string * presence: Session.UserPresence
+  | ConnectedUserRemoved of sessionId: string * user: string
 
 let private sessionsPath = "sessions"
 
@@ -138,7 +140,7 @@ let leaveSession (client: FirebaseClient) (sessionId: string) (user: string) : A
 let setActiveDriver (client: FirebaseClient) sessionId (user: string) =
   async {
     do!
-      client.Child(sessionsPath).Child(sessionId).Child("ActiveDriver").PutAsync(user)
+      client.Child(sessionsPath).Child(sessionId).Child("ActiveDriver").PutAsync(user :> obj)
       |> Async.AwaitTask
   }
 
@@ -255,3 +257,32 @@ let private subscribeWidgetState (client: FirebaseClient) (sessionId: string) (d
 
 let widgetStateSubscription (client: FirebaseClient) (sessionId: string) (wrap: Msg -> 'appMsg) =
   [ "widget-state"; sessionId ], fun dispatch -> subscribeWidgetState client sessionId (wrap >> dispatch)
+
+let private subscribeConnectedUsers (client: FirebaseClient) (sessionId: string) (dispatch: Msg -> unit) : IDisposable =
+  let onNext (ev: FirebaseEvent<Session.UserPresence>) =
+    try
+      match String.IsNullOrEmpty ev.Key with
+      | true -> ()
+      | false ->
+        match ev.EventType with
+        | FirebaseEventType.Delete -> dispatch (ConnectedUserRemoved(sessionId, ev.Key))
+        | _ ->
+          match isNull (box ev.Object) with
+          | true -> ()
+          | false -> dispatch (ConnectedUserChanged(sessionId, ev.Key, ev.Object))
+    with e ->
+      dispatch (ConnectionError(sprintf "[%s] %s" (e.GetType().Name) e.Message))
+
+  let onError (e: exn) =
+    dispatch (ConnectionError(sprintf "[%s] %s" (e.GetType().Name) e.Message))
+
+  client
+    .Child(sessionsPath)
+    .Child(sessionId)
+    .Child("widgetState")
+    .Child("connectedUsers")
+    .AsObservable<Session.UserPresence>()
+    .Subscribe(Action<FirebaseEvent<Session.UserPresence>> onNext, Action<exn> onError)
+
+let connectedUsersSubscription (client: FirebaseClient) (sessionId: string) (wrap: Msg -> 'appMsg) =
+  [ "connected-users"; sessionId ], fun dispatch -> subscribeConnectedUsers client sessionId (wrap >> dispatch)

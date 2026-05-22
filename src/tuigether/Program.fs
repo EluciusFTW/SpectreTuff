@@ -34,6 +34,7 @@ Elmish.Program.mkProgram (Application.init user) (Application.update client user
   @ (match model.Page with
      | Application.SessionViewPage viewModel -> [
          Firebase.widgetStateSubscription client viewModel.SessionId Application.FirebaseMsg
+         Firebase.connectedUsersSubscription client viewModel.SessionId Application.FirebaseMsg
        ]
      | Application.SessionListPage -> []))
 |> Elmish.Program.withTrace Application.traceToLog
