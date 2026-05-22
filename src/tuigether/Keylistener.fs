@@ -11,8 +11,11 @@ let keyListener =
 
     let rec loop () =
       async {
-        let key = Console.ReadKey true
-        dispatch (KeyPressed key)
+        match Console.KeyAvailable with
+        | true -> dispatch (KeyPressed(Console.ReadKey true))
+        | false -> ()
+
+        do! Async.Sleep 10
         do! loop ()
       }
 
@@ -25,5 +28,4 @@ let keyListener =
 
   sub
 
-let subscription (wrap: Msg -> 'appMsg) _ =
-  [ [ "keys" ], fun dispatch -> keyListener (wrap >> dispatch) ]
+let subscription (wrap: Msg -> 'appMsg) _ = [ [ "keys" ], fun dispatch -> keyListener (wrap >> dispatch) ]

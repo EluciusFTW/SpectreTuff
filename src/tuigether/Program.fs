@@ -14,8 +14,15 @@ then
 
 let client = Firebase.createClient { Url = url; Secret = secret }
 
-Console.Clear()
 let terminal = Spectre.Tui.Terminal.Create()
+// Work around ConPTY alt-screen sizing bug: exit and re-enter alt-screen
+// so ConPTY allocates the buffer with the real window dimensions.
+Console.Write "\x1b[?1049l"
+Console.Out.Flush()
+System.Threading.Thread.Sleep 30
+Console.Write "\x1b[?1049h"
+Console.Out.Flush()
+
 let renderer = Spectre.Tui.Renderer terminal
 renderer.NoTargetFps()
 
@@ -23,6 +30,7 @@ Elmish.Program.mkProgram (Application.init user) (Application.update client user
 |> Elmish.Program.withSubscription (fun model ->
   Firebase.subscription client Application.FirebaseMsg model
   @ Input.subscription Application.InputMsg model
+  @ Tick.subscription (TimeSpan.FromMilliseconds 200.0) Application.Tick model
   @ (match model.Page with
      | Application.SessionViewPage viewModel -> [
          Firebase.widgetStateSubscription client viewModel.SessionId Application.FirebaseMsg

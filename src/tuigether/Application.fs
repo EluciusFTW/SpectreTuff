@@ -33,6 +33,7 @@ type Msg =
   | CreateCompleted of Result<string, string>
   | DeleteCompleted of Result<unit, string>
   | ToggleLog
+  | Tick
   | Exit
 
 type Panel = {
@@ -286,6 +287,8 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
       { model with Page = SessionViewPage m }, Cmd.batch [ Cmd.map SessionViewMsg sessionCmd; saveCmd ]
     | _ -> model, []
 
+  | Tick -> model, []
+
   | Exit ->
     exitEvent.Set()
     model, []
@@ -329,4 +332,6 @@ let view (renderer: Renderer) (model: Model) _dispatch =
   renderer.Draw(fun ctx _ -> ctx.Render(AppView model))
 
 let traceToLog msg (model: Model) _ =
-  Log.append (sprintf "%A" msg) model.LogModel
+  match msg with
+  | Tick -> ()
+  | _ -> Log.append (sprintf "%A" msg) model.LogModel
