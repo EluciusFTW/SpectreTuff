@@ -31,3 +31,7 @@ Formatting rules are in `.editorconfig`.
 - Boolean toggles use paired functions (`showFoo`/`hideFoo`, `foo`/`noFoo`) — never `withFoo: bool`.
 - API names are symmetric (e.g. `withHorizontalAlignment` / `withVerticalAlignment`).
 - Prefer `match` over `if`/`else`.
+
+## Logging (tuigether)
+
+For debugging, read `./logs/tuigether-YYYY-MM-DD.log` directly.
