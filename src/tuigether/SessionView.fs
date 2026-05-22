@@ -1,11 +1,8 @@
 module SessionView
 
 open System
-open Elmish
-open Spectre.Console
 open Spectre.Tui
-open SpectreTuff
-open SpectreTuff.Layout
+open Keymap
 open SpectreTuff.Widgets
 
 type Model = {
@@ -37,7 +34,24 @@ let update msg model =
     },
     []
 
-let view (model: Model) (ctx: RenderContext) (area: Rectangle) =
+let private bindings: KeyBinding<Model, Msg> list = [
+  KeyBinding.dynamic (SpecialKey ConsoleKey.Backspace) (fun _ -> {
+    Description = "back"
+    Message = Some GoBack
+  })
+  KeyBinding.dynamic (SpecialKey ConsoleKey.Escape) (fun _ -> {
+    Description = "back"
+    Message = Some GoBack
+  })
+]
+
+let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
+  KeyBinding.handleKey bindings key model
+
+let keyMap model =
+  KeyBinding.toKeyMap bindings model
+
+let widget (model: Model) : IWidget =
   let data = model.SessionData
 
   let users =
@@ -48,18 +62,6 @@ let view (model: Model) (ctx: RenderContext) (area: Rectangle) =
 
   let startedAt = DateTimeOffset.FromUnixTimeMilliseconds(data.StartedAt).ToString("yyyy-MM-dd HH:mm:ss")
 
-  let content =
-    sprintf
-      "  Goal:    %s\n  Started: %s\n  Users:   %s\n  Status:  %s\n\n  [esc/backspace] back  [q] quit"
-      data.Goal
-      startedAt
-      users
-      model.Status
-    |> ofString
-
-  ctx.Render(
-    box (Look.fromColor Color.Green)
-    |> withTitle (sprintf "Session: %s" model.SessionId)
-    |> withInnerWidget content,
-    area
-  )
+  sprintf "  Goal:    %s\n  Started: %s\n  Users:   %s\n  Status:  %s" data.Goal startedAt users model.Status
+  |> ofString
+  :> IWidget

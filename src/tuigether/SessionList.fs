@@ -1,11 +1,8 @@
 module SessionList
 
 open System
-open Elmish
-open Spectre.Console
 open Spectre.Tui
-open SpectreTuff
-open SpectreTuff.Layout
+open Keymap
 open SpectreTuff.Widgets
 
 type Model = {
@@ -84,34 +81,37 @@ let update msg model =
     },
     []
 
-let view (model: Model) (ctx: RenderContext) (area: Rectangle) =
-  let title = sprintf "Sessions  [%s]  — [↑↓] navigate  [enter] open  [n] new  [q] quit" model.Status
+let private bindings: KeyBinding<Model, Msg> list = [
+  KeyBinding.createSpecial ConsoleKey.UpArrow "up" Up
+  KeyBinding.createSpecial ConsoleKey.DownArrow "down" Down
+  KeyBinding.createSpecial ConsoleKey.Enter "open" OpenSelected
+  KeyBinding.create 'n' "new session" CreateNew
+]
 
-  let innerWidget: IWidget =
-    if model.Sessions.IsEmpty then
-      ofString "No sessions yet. Press [n] to create one." :> IWidget
-    else
-      let items =
-        model.Sessions
-        |> List.choose (fun (_, data) ->
-          if isNull (data :> obj) then
-            None
-          else
-            let userCount =
-              if isNull data.ConnectedUsers then
-                0
-              else
-                data.ConnectedUsers.Count
+let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
+  KeyBinding.handleKey bindings key model
 
-            let startedAt = DateTimeOffset.FromUnixTimeMilliseconds(data.StartedAt).ToString("yyyy-MM-dd HH:mm")
+let keyMap model =
+  KeyBinding.toKeyMap bindings model
 
-            Some(ListItem(sprintf "%-40s  %s  %d user(s)" data.Goal startedAt userCount)))
+let widget (model: Model) : IWidget =
+  if model.Sessions.IsEmpty then
+    ofString "No sessions yet. Press [n] to create one." :> IWidget
+  else
+    let items =
+      model.Sessions
+      |> List.choose (fun (_, data) ->
+        if isNull (data :> obj) then
+          None
+        else
+          let userCount =
+            if isNull data.ConnectedUsers then
+              0
+            else
+              data.ConnectedUsers.Count
 
-      list items |> selectedIndex model.SelectedIndex |> wrapAround :> IWidget
+          let startedAt = DateTimeOffset.FromUnixTimeMilliseconds(data.StartedAt).ToString("yyyy-MM-dd HH:mm")
 
-  ctx.Render(
-    box (Look.fromColor Color.Cyan)
-    |> withTitle title
-    |> withInnerWidget innerWidget,
-    area
-  )
+          Some(ListItem(sprintf "%-40s  %s  %d user(s)" data.Goal startedAt userCount)))
+
+    list items |> selectedIndex model.SelectedIndex |> wrapAround :> IWidget

@@ -2,11 +2,9 @@ module Application
 
 open System
 open Elmish
-open Spectre.Console
 open Spectre.Tui
-open SpectreTuff
+open Spectre.Tui.App
 open SpectreTuff.Layout
-open SpectreTuff.View
 open SpectreTuff.Widgets
 
 type Page =
@@ -16,6 +14,7 @@ type Page =
 type Model = {
   Page: Page
   User: string
+  Focus: int
   LogModel: Log.Model
 }
 
@@ -29,11 +28,81 @@ type Msg =
   | CreateCompleted of Result<string, string>
   | Exit
 
+type Panel = {
+  Number: int
+  Title: string
+  LayoutSlot: string
+  Focused: bool
+  Widget: IWidget
+  KeyMap: IKeyMap
+  HandleKey: ConsoleKeyInfo -> Msg option
+  Update: Msg -> Model -> (Model * Cmd<Msg>) option
+}
+
 let exitEvent = new Threading.ManualResetEventSlim false
+
+let private panelInnerLayout =
+  layout "panel-inner"
+  |> splitHorizontally [| layout "content"; layout "keys" |> withFixedSize (Some 1) |]
 
 let private mainLayout =
   layout "main"
-  |> splitHorizontally [| layout "content" |> withRatio 3; layout "log" |> withRatio 1 |]
+  |> splitHorizontally [|
+    layout "top"
+    |> splitVertically [| layout "content" |> withRatio 3; layout "log" |> withRatio 1 |]
+    layout "help" |> withFixedSize (Some 1)
+  |]
+
+let private globalKeyMap: IKeyMap =
+  { new IKeyMap with
+      member _.Help() =
+        seq { KeyBinding(Keys = ResizeArray [ KeyPress.For 'q' ], Help = "quit") }
+  }
+
+let private buildPanels (model: Model) : Panel list =
+  match model.Page with
+  | SessionListPage listModel -> [
+      {
+        Number = 1
+        Title = "Sessions"
+        LayoutSlot = "content"
+        Focused = model.Focus = 1
+        Widget = SessionList.widget listModel
+        KeyMap = SessionList.keyMap listModel
+        HandleKey = fun key -> SessionList.handleKey key listModel |> Option.map SessionListMsg
+        Update =
+          fun msg model ->
+            match msg with
+            | SessionListMsg lMsg ->
+              match model.Page with
+              | SessionListPage listModel ->
+                let m, cmd = SessionList.update lMsg listModel
+                Some({ model with Page = SessionListPage m }, Cmd.map SessionListMsg cmd)
+              | _ -> None
+            | _ -> None
+      }
+    ]
+  | SessionViewPage viewModel -> [
+      {
+        Number = 1
+        Title = "Session"
+        LayoutSlot = "content"
+        Focused = model.Focus = 1
+        Widget = SessionView.widget viewModel
+        KeyMap = SessionView.keyMap viewModel
+        HandleKey = fun key -> SessionView.handleKey key viewModel |> Option.map SessionViewMsg
+        Update =
+          fun msg model ->
+            match msg with
+            | SessionViewMsg vMsg ->
+              match model.Page with
+              | SessionViewPage viewModel ->
+                let m, cmd = SessionView.update vMsg viewModel
+                Some({ model with Page = SessionViewPage m }, Cmd.map SessionViewMsg cmd)
+              | _ -> None
+            | _ -> None
+      }
+    ]
 
 let init (user: string) () =
   let listModel, listCmd = SessionList.init ()
@@ -41,6 +110,7 @@ let init (user: string) () =
   {
     Page = SessionListPage listModel
     User = user
+    Focus = 1
     LogModel = Log.init ()
   },
   Cmd.map SessionListMsg listCmd
@@ -50,33 +120,12 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
   | InputMsg(Input.KeyPressed key) ->
     match key.Key with
     | ConsoleKey.Q -> model, Cmd.ofMsg Exit
-    | ConsoleKey.UpArrow ->
-      match model.Page with
-      | SessionListPage _ -> model, Cmd.ofMsg (SessionListMsg SessionList.Up)
-      | SessionViewPage _ -> model, []
-    | ConsoleKey.DownArrow ->
-      match model.Page with
-      | SessionListPage _ -> model, Cmd.ofMsg (SessionListMsg SessionList.Down)
-      | SessionViewPage _ -> model, []
-    | ConsoleKey.Enter ->
-      match model.Page with
-      | SessionListPage listModel when not listModel.Sessions.IsEmpty ->
-        model, Cmd.ofMsg (SessionListMsg SessionList.OpenSelected)
-      | _ -> model, []
-    | ConsoleKey.N ->
-      match model.Page with
-      | SessionListPage _ -> model, Cmd.OfAsync.perform (fun () -> Firebase.createSession client) () CreateCompleted
-      | _ -> model, []
-    | ConsoleKey.Escape
-    | ConsoleKey.Backspace ->
-      match model.Page with
-      | SessionViewPage viewModel ->
-        let leaveCmd =
-          Cmd.OfAsync.perform (fun () -> Firebase.leaveSession client viewModel.SessionId user) () LeaveCompleted
-
-        model, Cmd.batch [ Cmd.ofMsg (SessionViewMsg SessionView.GoBack); leaveCmd ]
-      | _ -> model, []
-    | _ -> model, []
+    | _ ->
+      buildPanels model
+      |> List.tryFind (fun p -> p.Number = model.Focus)
+      |> Option.bind (fun p -> p.HandleKey key)
+      |> Option.map (fun msg -> model, Cmd.ofMsg msg)
+      |> Option.defaultValue (model, [])
 
   | FirebaseMsg(Firebase.SessionsLoaded sessions) ->
     model, Cmd.ofMsg (SessionListMsg(SessionList.SessionsLoaded sessions))
@@ -85,6 +134,8 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
   | FirebaseMsg(Firebase.SessionRemoved id) -> model, Cmd.ofMsg (SessionListMsg(SessionList.SessionRemoved id))
   | FirebaseMsg(Firebase.ConnectionError e) -> model, Cmd.ofMsg (SessionListMsg(SessionList.LoadError e))
 
+  | SessionListMsg SessionList.CreateNew ->
+    model, Cmd.OfAsync.perform (fun () -> Firebase.createSession client) () CreateCompleted
   | SessionListMsg SessionList.OpenSelected ->
     match model.Page with
     | SessionListPage listModel when not listModel.Sessions.IsEmpty ->
@@ -97,37 +148,21 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
       },
       Cmd.OfAsync.perform (fun () -> Firebase.joinSession client sessionId user) () JoinCompleted
     | _ -> model, []
-  | SessionListMsg msg ->
-    match model.Page with
-    | SessionListPage listModel ->
-      let listModel', cmd = SessionList.update msg listModel
-
-      {
-        model with
-            Page = SessionListPage listModel'
-      },
-      Cmd.map SessionListMsg cmd
-    | _ -> model, []
 
   | SessionViewMsg SessionView.GoBack ->
     let listModel, listCmd = SessionList.init ()
+
+    let leaveCmd =
+      match model.Page with
+      | SessionViewPage viewModel ->
+        Cmd.OfAsync.perform (fun () -> Firebase.leaveSession client viewModel.SessionId user) () LeaveCompleted
+      | _ -> []
 
     {
       model with
           Page = SessionListPage listModel
     },
-    Cmd.map SessionListMsg listCmd
-  | SessionViewMsg msg ->
-    match model.Page with
-    | SessionViewPage viewModel ->
-      let viewModel', cmd = SessionView.update msg viewModel
-
-      {
-        model with
-            Page = SessionViewPage viewModel'
-      },
-      Cmd.map SessionViewMsg cmd
-    | _ -> model, []
+    Cmd.batch [ Cmd.map SessionListMsg listCmd; leaveCmd ]
 
   | JoinCompleted result ->
     match model.Page with
@@ -140,16 +175,30 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
     exitEvent.Set()
     model, []
 
+  | _ ->
+    buildPanels model
+    |> List.tryPick (fun p -> p.Update msg model)
+    |> Option.defaultValue (model, [])
+
 type AppView(model: Model) =
   interface IWidget with
     member _.Render(ctx: RenderContext) =
-      let getPort = getPort ctx.Viewport mainLayout
+      let panels = buildPanels model
+      let slotPort = getPort ctx.Viewport mainLayout
 
-      match model.Page with
-      | SessionListPage listModel -> SessionList.view listModel ctx (getPort "content")
-      | SessionViewPage viewModel -> SessionView.view viewModel ctx (getPort "content")
+      for panel in panels do
+        let composedWidget =
+          { new IWidget with
+              member _.Render(ctx) =
+                let port = getPort ctx.Viewport panelInnerLayout
+                ctx.Render(panel.Widget, port "content")
+                ctx.Render(help [ panel.KeyMap ] |> leftAligned, port "keys")
+          }
 
-      Log.view model.LogModel ctx (getPort "log")
+        ctx.Render(focusableBox panel.Title panel.Number panel.Focused composedWidget, slotPort panel.LayoutSlot)
+
+      Log.view model.LogModel ctx (slotPort "log")
+      ctx.Render(help [ globalKeyMap ] |> leftAligned, slotPort "help")
 
 let view (renderer: Renderer) (model: Model) _dispatch =
   renderer.Draw(fun ctx _ -> ctx.Render(AppView model))

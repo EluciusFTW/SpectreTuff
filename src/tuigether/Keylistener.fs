@@ -1,7 +1,6 @@
 module Input
 
 open System
-open Elmish
 
 type Msg = KeyPressed of ConsoleKeyInfo
 type Model = unit

@@ -3,8 +3,6 @@ module Log
 open Spectre.Console
 open Spectre.Tui
 open SpectreTuff
-open SpectreTuff.Layout
-open SpectreTuff.View
 open SpectreTuff.Widgets
 
 type Model = { Entries: ResizeArray<string> }
