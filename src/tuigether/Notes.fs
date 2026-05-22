@@ -5,6 +5,7 @@ open System.Runtime.InteropServices
 open Spectre.Console
 open Spectre.Tui
 open Keymap
+open SpectreTuff
 open SpectreTuff.Widgets
 
 type NoteMode =
@@ -14,6 +15,7 @@ type NoteMode =
 type InputMode =
   | Normal
   | Insert
+  | AddingItem of string
 
 type Model = {
   NoteMode: NoteMode
@@ -55,9 +57,15 @@ let private listNormalBindings: KeyBinding<Model, Msg> list = [
   KeyBinding.create 'm' "→ freetext" SwitchToFreetext
 ]
 
+let private addingItemBindings: KeyBinding<Model, Msg> list = [
+  KeyBinding.createSpecial ConsoleKey.Enter "confirm" TypeNewLine
+  KeyBinding.createSpecial ConsoleKey.Escape "cancel" ExitInsert
+]
+
 let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
   match model.InputMode with
-  | Insert ->
+  | Insert
+  | AddingItem _ ->
     match key.Key with
     | ConsoleKey.Escape -> Some ExitInsert
     | ConsoleKey.Backspace -> Some TypeBackspace
@@ -84,12 +92,16 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
         | _ -> None
 
 let capturesInput (model: Model) =
-  model.InputMode = Insert
+  match model.InputMode with
+  | Insert
+  | AddingItem _ -> true
+  | Normal -> false
 
 let keyMap (model: Model) =
   let bindings =
     match model.NoteMode, model.InputMode with
     | _, Insert -> insertModeBindings
+    | _, AddingItem _ -> addingItemBindings
     | Freetext, Normal -> freetextNormalBindings
     | List, Normal -> listNormalBindings
 
@@ -156,28 +168,68 @@ let update msg model =
   | EnterInsert -> { model with InputMode = Insert }, []
   | ExitInsert -> { model with InputMode = Normal }, []
   | TypeChar c ->
-    {
-      model with
-          FreetextContent = model.FreetextContent + string c
-    },
-    []
+    match model.InputMode with
+    | AddingItem text ->
+      {
+        model with
+            InputMode = AddingItem(text + string c)
+      },
+      []
+    | _ ->
+      {
+        model with
+            FreetextContent = model.FreetextContent + string c
+      },
+      []
   | TypeBackspace ->
-    let text = model.FreetextContent
+    match model.InputMode with
+    | AddingItem text ->
+      {
+        model with
+            InputMode =
+              AddingItem(
+                match text with
+                | "" -> ""
+                | _ -> text.[.. text.Length - 2]
+              )
+      },
+      []
+    | _ ->
+      let text = model.FreetextContent
 
-    {
-      model with
-          FreetextContent =
-            match text with
-            | "" -> ""
-            | _ -> text.[.. text.Length - 2]
-    },
-    []
+      {
+        model with
+            FreetextContent =
+              match text with
+              | "" -> ""
+              | _ -> text.[.. text.Length - 2]
+      },
+      []
   | TypeNewLine ->
-    {
-      model with
-          FreetextContent = model.FreetextContent + "\n"
-    },
-    []
+    match model.InputMode with
+    | AddingItem text ->
+      let insertAt = min (model.ListIndex + 1) model.ListItems.Length
+
+      let newText =
+        match text.Trim() with
+        | "" -> "New note"
+        | s -> s
+
+      let newItems = model.ListItems |> List.insertAt insertAt newText
+
+      {
+        model with
+            ListItems = newItems
+            ListIndex = insertAt
+            InputMode = Normal
+      },
+      []
+    | _ ->
+      {
+        model with
+            FreetextContent = model.FreetextContent + "\n"
+      },
+      []
   | ListUp ->
     let count = model.ListItems.Length
 
@@ -200,16 +252,7 @@ let update msg model =
             ListIndex = (model.ListIndex + 1) % count
       },
       []
-  | AddItem ->
-    let insertAt = min (model.ListIndex + 1) model.ListItems.Length
-    let newItems = model.ListItems |> List.insertAt insertAt "New note"
-
-    {
-      model with
-          ListItems = newItems
-          ListIndex = insertAt
-    },
-    []
+  | AddItem -> { model with InputMode = AddingItem "" }, []
   | DeleteItem ->
     match model.ListItems with
     | [] -> model, []
@@ -241,17 +284,43 @@ let widget (model: Model) : IWidget =
     |> withMode TextBoxMode.MultiLine
     |> (match model.InputMode with
         | Insert -> focused >> withCursorAtEnd
-        | Normal -> unfocused)
+        | Normal
+        | AddingItem _ -> unfocused)
     :> IWidget
   | List ->
     let items = model.ListItems |> List.map ListItem
 
-    list items
-    |> withSelectedIndex (
-      match items with
-      | [] -> None
-      | _ -> Some model.ListIndex
-    )
-    |> withHighlightSymbol (LineExtensions.FromString("> ", Style Color.Green))
-    |> wrapAround
-    :> IWidget
+    let listWidget =
+      list items
+      |> withSelectedIndex (
+        match items with
+        | [] -> None
+        | _ -> Some model.ListIndex
+      )
+      |> withHighlightSymbol (LineExtensions.FromString("> ", Style Color.Green))
+      |> wrapAround
+      :> IWidget
+
+    match model.InputMode with
+    | AddingItem text ->
+      { new IWidget with
+          member _.Render(ctx) =
+            ctx.Render(listWidget)
+
+            let inputWidget =
+              textBox text
+              |> withMode TextBoxMode.SingleLine
+              |> withPlaceholder "Enter item text…"
+              |> focused
+              |> withCursorAtEnd
+              :> IWidget
+
+            let boxedInput =
+              box (Look.fromColor Color.Green)
+              |> withTitle "New item"
+              |> withInnerWidget inputWidget
+              :> IWidget
+
+            ctx.Render(popup 44 3 |> withPopupContent boxedInput :> IWidget)
+      }
+    | _ -> listWidget

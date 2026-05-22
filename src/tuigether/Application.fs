@@ -275,7 +275,7 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
       let m, sessionCmd = SessionView.update vMsg viewModel
 
       let saveCmd =
-        match SessionView.shouldPersist vMsg with
+        match SessionView.shouldPersist vMsg m with
         | true ->
           Cmd.OfAsync.perform
             (fun () -> Firebase.saveWidgetState client m.SessionId (SessionView.toWidgetState m))

@@ -37,10 +37,13 @@ type Msg =
   | WidgetStateLoaded of Session.WidgetState option
   | StateSaved
 
-let shouldPersist =
-  function
-  | NotesMsg(Notes.TypeChar _ | Notes.TypeBackspace | Notes.TypeNewLine | Notes.AddItem | Notes.DeleteItem | Notes.SwitchToFreetext | Notes.SwitchToList) ->
-    true
+let shouldPersist (msg: Msg) (model: Model) =
+  match msg with
+  | NotesMsg(Notes.TypeChar _ | Notes.TypeBackspace) ->
+    match model.Notes.InputMode with
+    | Notes.AddingItem _ -> false
+    | _ -> true
+  | NotesMsg(Notes.TypeNewLine | Notes.DeleteItem | Notes.SwitchToFreetext | Notes.SwitchToList) -> true
   | TimerMsg _ -> true
   | AvatarMsg Avatar.NextMood -> true
   | _ -> false
@@ -84,7 +87,11 @@ let applyWidgetState (state: Session.WidgetState) (model: Model) : Model =
           match state.NotesNoteMode with
           | "List" -> Notes.List
           | _ -> Notes.Freetext
-        InputMode = Notes.Normal
+        InputMode =
+          match model.Notes.InputMode with
+          | Notes.Insert
+          | Notes.AddingItem _ -> model.Notes.InputMode
+          | Notes.Normal -> Notes.Normal
         ListIndex = 0
   }
 
