@@ -35,6 +35,7 @@ type Panel = {
   Title: string
   LayoutSlot: string
   Focused: bool
+  Boxed: bool
   Widget: IWidget
   KeyMap: IKeyMap
   HandleKey: ConsoleKeyInfo -> Msg option
@@ -75,6 +76,7 @@ let private buildPanels (model: Model) : Panel list =
         Title = "Sessions"
         LayoutSlot = "content"
         Focused = model.Focus = 1
+        Boxed = true
         Widget = SessionList.widget listModel
         KeyMap = SessionList.keyMap listModel
         HandleKey = fun key -> SessionList.handleKey key listModel |> Option.map SessionListMsg
@@ -96,6 +98,7 @@ let private buildPanels (model: Model) : Panel list =
         Title = "Session"
         LayoutSlot = "content"
         Focused = model.Focus = 1
+        Boxed = false
         Widget = SessionView.widget viewModel
         KeyMap = SessionView.keyMap viewModel
         HandleKey = fun key -> SessionView.handleKey key viewModel |> Option.map SessionViewMsg
@@ -211,7 +214,13 @@ type AppView(model: Model) =
                 ctx.Render(help [ panel.KeyMap ] |> leftAligned, port "keys")
           }
 
-        ctx.Render(focusableBox panel.Title panel.Number panel.Focused composedWidget, slotPort panel.LayoutSlot)
+        let renderedPanel: IWidget =
+          if panel.Boxed then
+            focusableBox panel.Title panel.Number panel.Focused composedWidget :> IWidget
+          else
+            composedWidget
+
+        ctx.Render(renderedPanel, slotPort panel.LayoutSlot)
 
       if model.LogVisible then
         Log.view model.LogModel ctx (slotPort "log")
