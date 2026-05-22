@@ -270,6 +270,7 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
       | 4 -> SessionInfo.handleKey key model.SessionInfo |> Option.map SessionInfoMsg
       | 5 -> Avatar.handleKey key model.Avatar |> Option.map AvatarMsg
       | _ -> None)
+    |> Option.orElseWith (fun () -> Timer.handleKey key model.Timer |> Option.map TimerMsg)
 
 let keyMap (model: Model) : Spectre.Tui.App.IKeyMap =
   KeyBinding.toKeyMap outerBindings model

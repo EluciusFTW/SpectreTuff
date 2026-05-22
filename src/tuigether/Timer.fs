@@ -28,6 +28,7 @@ type Model = {
   ConnectedUsers: string list
   UserAvatars: Map<string, Creature>
   TickEpoch: int
+  Game: BreakGame.GameModel option
 }
 
 type Msg =
@@ -44,6 +45,8 @@ type Msg =
   | StartBreak
   | BreakTick
   | BreakFinished
+  | BreakGameJump
+  | BreakGameTick
   | SessionUpdated of string list * string option * Map<string, Creature>
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -60,6 +63,8 @@ let private tickCmd (epoch: int) =
 let private flashTickCmd = Cmd.OfAsync.perform (fun () -> async { do! Async.Sleep 200 }) () (fun () -> FlashTick)
 
 let private breakTickCmd = Cmd.OfAsync.perform (fun () -> async { do! Async.Sleep 500 }) () (fun () -> BreakTick)
+
+let private gameTickCmd = Cmd.OfAsync.perform (fun () -> async { do! Async.Sleep 100 }) () (fun () -> BreakGameTick)
 
 // ─── Notification ────────────────────────────────────────────────────────────
 
@@ -97,6 +102,7 @@ let init () = {
   ConnectedUsers = []
   UserAvatars = Map.empty
   TickEpoch = 0
+  Game = None
 }
 
 let resetForDriver (previous: Model) (driver: string option) (users: string list) (avatars: Map<string, Creature>) = {
@@ -107,6 +113,7 @@ let resetForDriver (previous: Model) (driver: string option) (users: string list
   ConnectedUsers = users
   UserAvatars = avatars
   TickEpoch = previous.TickEpoch + 1
+  Game = None
 }
 
 // ─── Update ──────────────────────────────────────────────────────────────────
@@ -186,6 +193,7 @@ let update msg model =
           State = Breaking 0
           Phase = Break
           Remaining = breakDuration
+          Game = Some(BreakGame.init ())
     },
     breakTickCmd
   | BreakTick ->
@@ -209,6 +217,7 @@ let update msg model =
           State = Idle
           Phase = Work
           Remaining = workDuration
+          Game = None
     },
     []
   | SkipPause ->
@@ -219,6 +228,7 @@ let update msg model =
             State = Idle
             Phase = Work
             Remaining = workDuration
+            Game = None
       },
       []
     | _ -> model, []
@@ -235,6 +245,36 @@ let update msg model =
       []
     | _ -> model, []
   | SwitchDriver -> model, []
+  | BreakGameJump ->
+    match model.State, model.Game with
+    | Breaking _, Some game ->
+      let roadWidth = 32
+
+      let newGame =
+        match game.Phase with
+        | BreakGame.WaitingForStart -> BreakGame.start roadWidth game
+        | BreakGame.Playing -> BreakGame.jump game
+        | BreakGame.GameOver _ -> game
+
+      let cmd =
+        match game.Phase, newGame.Phase with
+        | BreakGame.WaitingForStart, BreakGame.Playing -> gameTickCmd
+        | _ -> []
+
+      { model with Game = Some newGame }, cmd
+    | _ -> model, []
+  | BreakGameTick ->
+    match model.State, model.Game with
+    | Breaking _, Some game ->
+      let roadWidth = 32
+      let newGame = BreakGame.tick roadWidth game
+
+      match newGame.Phase with
+      | BreakGame.Playing -> { model with Game = Some newGame }, gameTickCmd
+      | BreakGame.GameOver n when n > 0 -> { model with Game = Some newGame }, gameTickCmd
+      | BreakGame.GameOver _ -> { model with Game = Some newGame }, gameTickCmd
+      | BreakGame.WaitingForStart -> { model with Game = Some newGame }, []
+    | _ -> model, []
   | SessionUpdated(users, driver, avatars) ->
     {
       model with
@@ -243,6 +283,17 @@ let update msg model =
           UserAvatars = avatars
     },
     []
+
+// ─── Key handling ────────────────────────────────────────────────────────────
+
+let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
+  match model.State, key.KeyChar, model.Game with
+  | Breaking _, ' ', Some game ->
+    match game.Phase with
+    | BreakGame.WaitingForStart
+    | BreakGame.Playing -> Some BreakGameJump
+    | BreakGame.GameOver _ -> None
+  | _ -> None
 
 // ─── Widget ──────────────────────────────────────────────────────────────────
 
@@ -322,23 +373,119 @@ let widget (model: Model) : IWidget =
           | Empty -> emptyBlock
           | Filled color -> styledBlock color
 
+        let gameRoadWidth = max 16 (context.Viewport.Width / 2)
+        let cupWidth = 8
+
         match model.State with
         | Breaking frame ->
           let steamRows = steamFrames.[(frame / 2) % 2]
-          let allRows = steamRows @ cupRows
-
-          let cupLines = allRows |> List.map (fun row -> row |> List.map renderCell |> Text.line)
+          let allCupRows = steamRows @ cupRows
 
           let label1 = model.ActiveDriver |> Option.defaultValue "?"
           let label2 = nextInList model.ConnectedUsers model.ActiveDriver |> Option.defaultValue "?"
 
-          let infoLines = [
-            Text.line [ Text.span "" ]
-            Text.line [ Text.span (sprintf "  BREAK  %s" (formatTime model.Remaining)) ]
-            Text.line [ Text.span (sprintf "  %s → %s" label1 label2) ]
-          ]
+          let driverColor =
+            model.ActiveDriver
+            |> Option.bind (fun u -> model.UserAvatars |> Map.tryFind u)
+            |> Option.map (fun creature ->
+              creature.SmallRows
+              |> List.concat
+              |> List.tryPick (function
+                | Filled c -> Some c
+                | Empty -> None)
+              |> Option.defaultValue Color.Silver)
+            |> Option.defaultValue Color.Silver
 
-          context.Render(paragraph (cupLines @ infoLines), context.Viewport)
+          match model.Game with
+          | None ->
+            let cupLines = allCupRows |> List.map (fun row -> row |> List.map renderCell |> Text.line)
+
+            let infoLines = [
+              Text.line [ Text.span "" ]
+              Text.line [ Text.span (sprintf "  BREAK  %s" (formatTime model.Remaining)) ]
+              Text.line [ Text.span (sprintf "  %s → %s" label1 label2) ]
+            ]
+
+            context.Render(paragraph (cupLines @ infoLines), context.Viewport)
+
+          | Some game ->
+            match game.Phase with
+            | BreakGame.WaitingForStart ->
+              let cupLines = allCupRows |> List.map (fun row -> row |> List.map renderCell |> Text.line)
+
+              let infoLines = [
+                Text.line [ Text.span (sprintf "  [BREAK]  %s" (formatTime model.Remaining)) ]
+                Text.line [ Text.span (sprintf "  %s → %s" label1 label2) ]
+                Text.line [ Text.span "  [PRESS SPACE]" ]
+              ]
+
+              context.Render(paragraph (cupLines @ infoLines), context.Viewport)
+
+            | BreakGame.Playing
+            | BreakGame.GameOver _ ->
+              let carYInt = int (System.Math.Round(game.CarY))
+              let groundRow = 7
+              let carWheelsRow = max 0 (groundRow - carYInt)
+              let carBodyRow = max 0 (carWheelsRow - 1)
+              let carRoofRow = max 0 (carBodyRow - 1)
+
+              let obstacleColors = [|
+                Color.Green
+                Color.DeepSkyBlue1
+                Color.SpringGreen1
+                Color.DodgerBlue1
+                Color.Lime
+                Color.Aquamarine1
+                Color.Blue1
+              |]
+
+              let obstacleAtCol gameCol =
+                game.Obstacles
+                |> List.tryFind (fun o ->
+                  let ox = int (System.Math.Round(o.X))
+                  gameCol >= ox && gameCol < ox + o.Width)
+
+              let gameCell row gameCol =
+                let inCarCols = gameCol >= 4 && gameCol <= 6
+                let relCol = gameCol - 4
+
+                match obstacleAtCol gameCol with
+                | Some obs when row > groundRow - obs.Height && row <= groundRow ->
+                  styledBlock obstacleColors.[obs.ColorTag % obstacleColors.Length]
+                | _ ->
+                  if inCarCols && row = carRoofRow then
+                    styledBlock Color.Silver
+                  elif inCarCols && row = carBodyRow then
+                    match relCol with
+                    | 0
+                    | 2 -> styledBlock Color.Grey15
+                    | _ -> styledBlock driverColor
+                  elif inCarCols && row = carWheelsRow then
+                    match relCol with
+                    | 0
+                    | 2 -> styledBlock Color.Grey3
+                    | _ -> styledBlock Color.Grey
+                  elif row >= groundRow - 1 then
+                    styledBlock Color.Grey23
+                  else
+                    emptyBlock
+
+              let compositeLines = [
+                for row in 0 .. List.length allCupRows - 1 ->
+                  let cupCells = allCupRows.[row] |> List.map renderCell
+                  let gameCells = [ for col in 0 .. gameRoadWidth - cupWidth - 1 -> gameCell row col ]
+                  Text.line (cupCells @ gameCells)
+              ]
+
+              let infoLine =
+                match game.Phase with
+                | BreakGame.Playing ->
+                  Text.line [
+                    Text.span (sprintf "  BREAK %s  score: %d" (formatTime model.Remaining) game.Score)
+                  ]
+                | _ -> Text.line [ Text.span (sprintf "  GAME OVER  score: %d" game.Score) ]
+
+              context.Render(paragraph (compositeLines @ [ infoLine ]), context.Viewport)
 
         | _ ->
           let roadWidth = max carWidth (context.Viewport.Width / 2)

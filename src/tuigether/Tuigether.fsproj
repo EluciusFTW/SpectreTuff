@@ -24,6 +24,7 @@
     <Compile Include="Log.fs" />
     <Compile Include="Notes.fs" />
     <Compile Include="TodoList.fs" />
+    <Compile Include="BreakGame.fs" />
     <Compile Include="Timer.fs" />
     <Compile Include="SessionInfo.fs" />
     <Compile Include="Avatar.fs" />
