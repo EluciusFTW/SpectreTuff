@@ -8,11 +8,12 @@ open SpectreTuff.Layout
 open SpectreTuff.Widgets
 
 type Page =
-  | SessionListPage of SessionList.Model
+  | SessionListPage
   | SessionViewPage of SessionView.Model
 
 type Model = {
   Page: Page
+  SessionList: SessionList.Model
   User: string
   Focus: int
   LogVisible: bool
@@ -74,26 +75,17 @@ let private globalKeyMap: IKeyMap =
 
 let private buildPanels (model: Model) : Panel list =
   match model.Page with
-  | SessionListPage listModel -> [
+  | SessionListPage -> [
       {
         Number = 1
         Title = "Sessions"
         LayoutSlot = "content"
         Focused = model.Focus = 1
         Boxed = true
-        Widget = SessionList.widget listModel
-        KeyMap = SessionList.keyMap listModel
-        HandleKey = fun key -> SessionList.handleKey key listModel |> Option.map SessionListMsg
-        Update =
-          fun msg model ->
-            match msg with
-            | SessionListMsg lMsg ->
-              match model.Page with
-              | SessionListPage listModel ->
-                let m, cmd = SessionList.update lMsg listModel
-                Some({ model with Page = SessionListPage m }, Cmd.map SessionListMsg cmd)
-              | _ -> None
-            | _ -> None
+        Widget = SessionList.widget model.SessionList
+        KeyMap = SessionList.keyMap model.SessionList
+        HandleKey = fun key -> SessionList.handleKey key model.SessionList |> Option.map SessionListMsg
+        Update = fun _ _ -> None
       }
     ]
   | SessionViewPage viewModel -> [
@@ -123,7 +115,8 @@ let init (user: string) () =
   let listModel, listCmd = SessionList.init ()
 
   {
-    Page = SessionListPage listModel
+    Page = SessionListPage
+    SessionList = listModel
     User = user
     Focus = 1
     LogVisible = true
@@ -153,33 +146,28 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
 
   | SessionListMsg SessionList.CreateNew ->
     model, Cmd.OfAsync.perform (fun () -> Firebase.createSession client) () CreateCompleted
-  | SessionListMsg SessionList.OpenSelected ->
-    match model.Page with
-    | SessionListPage listModel when not listModel.Sessions.IsEmpty ->
-      let sessionId, sessionData = listModel.Sessions.[listModel.SelectedIndex]
-      let viewModel = SessionView.init user sessionId sessionData
+  | SessionListMsg SessionList.OpenSelected when not model.SessionList.Sessions.IsEmpty ->
+    let sessionId, sessionData = model.SessionList.Sessions.[model.SessionList.SelectedIndex]
+    let viewModel = SessionView.init user sessionId sessionData
 
-      {
-        model with
-            Page = SessionViewPage viewModel
-      },
-      Cmd.OfAsync.perform (fun () -> Firebase.joinSession client sessionId user) () JoinCompleted
-    | _ -> model, []
+    {
+      model with
+          Page = SessionViewPage viewModel
+    },
+    Cmd.OfAsync.perform (fun () -> Firebase.joinSession client sessionId user) () JoinCompleted
+  | SessionListMsg SessionList.OpenSelected -> model, []
+  | SessionListMsg lMsg ->
+    let listModel, listCmd = SessionList.update lMsg model.SessionList
+    { model with SessionList = listModel }, Cmd.map SessionListMsg listCmd
 
   | SessionViewMsg SessionView.GoBack ->
-    let listModel, listCmd = SessionList.init ()
-
     let leaveCmd =
       match model.Page with
       | SessionViewPage viewModel ->
         Cmd.OfAsync.perform (fun () -> Firebase.leaveSession client viewModel.SessionId user) () LeaveCompleted
       | _ -> []
 
-    {
-      model with
-          Page = SessionListPage listModel
-    },
-    Cmd.batch [ Cmd.map SessionListMsg listCmd; leaveCmd ]
+    { model with Page = SessionListPage }, leaveCmd
 
   | JoinCompleted result ->
     match model.Page with
