@@ -16,6 +16,7 @@ type Mood =
 type Creature = {
   Name: string
   Rows: Mood -> Cell list list
+  SmallRows: Cell list list
 }
 
 [<AutoOpen>]
@@ -440,16 +441,126 @@ module Avatar =
     top @ face @ bot
 
   let library: Creature list = [
-    { Name = "Blobbo"; Rows = blobboRows }
-    { Name = "Spiko"; Rows = spikoRows }
-    { Name = "Gloop"; Rows = gloopRows }
-    { Name = "Fangs"; Rows = fangsRows }
-    { Name = "Zorp"; Rows = zorpRows }
-    { Name = "Squig"; Rows = squigRows }
-    { Name = "Gromp"; Rows = grompRows }
-    { Name = "Twirl"; Rows = twirlRows }
-    { Name = "Blip"; Rows = blipRows }
-    { Name = "Krex"; Rows = krexRows }
+    {
+      Name = "Blobbo"
+      Rows = blobboRows
+      SmallRows = [
+        [ e; G; G; G; G; e ]
+        [ G; G; G; G; G; G ]
+        [ G; Y; G; G; Y; G ]
+        [ G; G; G; G; G; G ]
+        [ e; G; G; G; G; e ]
+        [ e; e; e; e; e; e ]
+      ]
+    }
+    {
+      Name = "Spiko"
+      Rows = spikoRows
+      SmallRows = [
+        [ e; B; e; e; B; e ]
+        [ R; R; R; R; R; R ]
+        [ R; Y; R; R; Y; R ]
+        [ R; R; R; R; R; R ]
+        [ e; R; R; R; R; e ]
+        [ e; e; e; e; e; e ]
+      ]
+    }
+    {
+      Name = "Gloop"
+      Rows = gloopRows
+      SmallRows = [
+        [ e; P; P; P; e; e ]
+        [ P; P; P; P; P; e ]
+        [ P; C; P; P; C; P ]
+        [ P; P; P; P; P; P ]
+        [ e; P; P; P; P; e ]
+        [ e; e; e; e; e; e ]
+      ]
+    }
+    {
+      Name = "Fangs"
+      Rows = fangsRows
+      SmallRows = [
+        [ e; r; r; r; r; e ]
+        [ r; r; r; r; r; r ]
+        [ r; O; e; r; O; e ]
+        [ r; r; r; r; r; r ]
+        [ r; W; r; r; W; r ]
+        [ e; e; e; e; e; e ]
+      ]
+    }
+    {
+      Name = "Zorp"
+      Rows = zorpRows
+      SmallRows = [
+        [ e; B; B; B; B; e ]
+        [ B; B; B; B; B; B ]
+        [ B; G; B; B; G; B ]
+        [ B; B; B; B; B; B ]
+        [ e; B; B; B; B; e ]
+        [ e; e; e; e; e; e ]
+      ]
+    }
+    {
+      Name = "Squig"
+      Rows = squigRows
+      SmallRows = [
+        [ e; Y; Y; Y; Y; e ]
+        [ Y; Y; Y; Y; Y; Y ]
+        [ Y; K; e; Y; K; e ]
+        [ Y; Y; Y; Y; Y; Y ]
+        [ e; Y; Y; Y; Y; e ]
+        [ e; e; e; e; e; e ]
+      ]
+    }
+    {
+      Name = "Gromp"
+      Rows = grompRows
+      SmallRows = [
+        [ e; S; S; S; S; e ]
+        [ S; S; S; S; S; S ]
+        [ S; W; S; S; W; S ]
+        [ S; S; S; S; S; S ]
+        [ e; S; S; S; S; e ]
+        [ e; e; e; e; e; e ]
+      ]
+    }
+    {
+      Name = "Twirl"
+      Rows = twirlRows
+      SmallRows = [
+        [ e; e; p; p; e; e ]
+        [ e; p; p; p; p; e ]
+        [ p; W; e; W; e; p ]
+        [ p; p; p; p; p; e ]
+        [ e; p; p; p; e; e ]
+        [ e; e; e; e; e; e ]
+      ]
+    }
+    {
+      Name = "Blip"
+      Rows = blipRows
+      SmallRows = [
+        [ e; C; C; C; e; e ]
+        [ C; C; C; C; C; e ]
+        [ C; B; C; C; B; C ]
+        [ C; C; C; C; C; C ]
+        [ e; C; C; C; C; e ]
+        [ e; e; e; e; e; e ]
+      ]
+    }
+    {
+      Name = "Krex"
+      Rows = krexRows
+      SmallRows = [
+        [ O; e; O; O; e; O ]
+        [ O; O; O; O; O; O ]
+        [ O; W; O; O; W; O ]
+        [ O; O; r; r; O; O ]
+        [ e; O; O; O; O; e ]
+        [ e; e; e; e; e; e ]
+      ]
+    }
   ]
 
   type AvatarWidget(creature: Creature, mood: Mood) =
@@ -476,3 +587,24 @@ module Avatar =
   let avatarByIndex (mood: Mood) (index: int) =
     let idx = ((index % library.Length) + library.Length) % library.Length
     AvatarWidget(library[idx], mood)
+
+  type SmallAvatarWidget(creature: Creature) =
+    interface IWidget with
+      member _.Render(context: RenderContext) =
+        let renderCell cell =
+          match cell with
+          | Empty -> Text.span "  "
+          | Filled color -> Text.styledSpan (System.Nullable(Style color)) "██"
+
+        let lines =
+          creature.SmallRows
+          |> List.map (fun row -> row |> List.map renderCell |> Text.line)
+
+        context.Render(paragraph lines, context.Viewport)
+
+  let smallAvatar (creature: Creature) =
+    SmallAvatarWidget(creature)
+
+  let smallAvatarByIndex (index: int) =
+    let idx = ((index % library.Length) + library.Length) % library.Length
+    SmallAvatarWidget(library[idx])
