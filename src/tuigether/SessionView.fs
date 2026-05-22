@@ -1,7 +1,6 @@
 module SessionView
 
 open System
-open System.Collections.Generic
 open Elmish
 open Spectre.Tui
 open Spectre.Tui.App
@@ -36,82 +35,6 @@ type Msg =
   | SetUserMood of Mood
   | WidgetStateLoaded of Session.WidgetState option
   | StateSaved
-
-let shouldPersist (msg: Msg) (model: Model) =
-  match msg with
-  | NotesMsg(Notes.TypeChar _ | Notes.TypeBackspace) ->
-    match model.Notes.InputMode with
-    | Notes.AddingItem _ -> false
-    | _ -> true
-  | NotesMsg(Notes.TypeNewLine | Notes.DeleteItem | Notes.SwitchToFreetext | Notes.SwitchToList) -> true
-  | TimerMsg _ -> true
-  | AvatarMsg Avatar.NextMood -> true
-  | _ -> false
-
-let toWidgetState (model: Model) : Session.WidgetStateSave =
-  let listItemsDict =
-    model.Notes.ListItems
-    |> List.mapi (fun i item -> string i, item)
-    |> dict
-    |> Dictionary<string, string>
-
-  {
-    NotesFreetextContent = model.Notes.FreetextContent
-    NotesListItems = listItemsDict
-    NotesNoteMode =
-      match model.Notes.NoteMode with
-      | Notes.Freetext -> "Freetext"
-      | Notes.List -> "List"
-    TimerRemainingSeconds = int model.Timer.Remaining.TotalSeconds
-    TimerIsRunning =
-      match model.Timer.State with
-      | Timer.Running -> true
-      | Timer.Stopped -> false
-  }
-
-let applyWidgetState (state: Session.WidgetState) (model: Model) : Model =
-  let listItems =
-    match isNull (state.NotesListItems :> obj) with
-    | true -> []
-    | false ->
-      state.NotesListItems
-      |> Seq.sortBy (fun kv -> int kv.Key)
-      |> Seq.map (fun kv -> kv.Value)
-      |> Seq.toList
-
-  let notes = {
-    model.Notes with
-        FreetextContent = state.NotesFreetextContent |> Option.ofObj |> Option.defaultValue ""
-        ListItems = listItems
-        NoteMode =
-          match state.NotesNoteMode with
-          | "List" -> Notes.List
-          | _ -> Notes.Freetext
-        InputMode =
-          match model.Notes.InputMode with
-          | Notes.Insert
-          | Notes.AddingItem _ -> model.Notes.InputMode
-          | Notes.Normal -> Notes.Normal
-        ListIndex = 0
-  }
-
-  let timer = {
-    model.Timer with
-        Remaining = TimeSpan.FromSeconds(float state.TimerRemainingSeconds)
-        State =
-          match state.TimerIsRunning with
-          | true -> Timer.Running
-          | false -> Timer.Stopped
-  }
-
-  let avatar = Avatar.applyConnectedUsers state.ConnectedUsers model.Avatar
-
-  {
-    model with
-        Notes = notes
-        Timer = timer
-        Avatar = avatar
-  }
 
 let init (user: string) (sessionId: string) (sessionData: Session.Data) = {
   SessionId = sessionId
@@ -158,6 +81,39 @@ let update msg model =
   | TodoListMsg tMsg ->
     let m, cmd = TodoList.update tMsg model.TodoList
     { model with TodoList = m }, Cmd.map TodoListMsg cmd
+  | TimerMsg Timer.SwitchDriver ->
+    let users = model.Avatar.Users
+
+    let nextUser =
+      match model.Avatar.ActiveDriver with
+      | None -> users |> List.tryHead
+      | Some current ->
+        let idx =
+          users
+          |> List.tryFindIndex (fun u -> u.Name = current.Name)
+          |> Option.defaultValue -1
+
+        Some users.[(idx + 1) % users.Length]
+
+    let nextDriverName = nextUser |> Option.map (fun u -> u.Name)
+    let connectedNames = users |> List.map (fun u -> u.Name)
+    let avatarMap = users |> List.map (fun u -> u.Name, u.Creature) |> Map.ofList
+
+    let driverCmd =
+      match nextDriverName with
+      | None -> Cmd.ofMsg (SetActiveDriver "")
+      | Some u -> Cmd.ofMsg (SetActiveDriver u)
+
+    {
+      model with
+          Avatar = {
+            model.Avatar with
+                ActiveDriver = nextUser
+          }
+          Timer = Timer.resetForDriver nextDriverName connectedNames avatarMap
+    },
+    Cmd.batch [ driverCmd; Cmd.ofMsg (TimerMsg Timer.Start) ]
+
   | TimerMsg tMsg ->
     let m, cmd = Timer.update tMsg model.Timer
     { model with Timer = m }, Cmd.map TimerMsg cmd
@@ -165,14 +121,19 @@ let update msg model =
     let m, cmd = SessionInfo.update sMsg model.SessionInfo
     { model with SessionInfo = m }, Cmd.map SessionInfoMsg cmd
   | UpdateSession data ->
-    let m, cmd = Avatar.update (Avatar.UpdateSession data) model.Avatar
+    let avatarM, avatarCmd = Avatar.update (Avatar.UpdateSession data) model.Avatar
+    let connectedUsers = avatarM.Users |> List.map (fun u -> u.Name)
+    let activeDriver = avatarM.ActiveDriver |> Option.map (fun u -> u.Name)
+    let userAvatarMap = avatarM.Users |> List.map (fun u -> u.Name, u.Creature) |> Map.ofList
+    let timerM, timerCmd = Timer.update (Timer.SessionUpdated(connectedUsers, activeDriver, userAvatarMap)) model.Timer
 
     {
       model with
-          Avatar = m
+          Avatar = avatarM
+          Timer = timerM
           SessionData = data
     },
-    Cmd.map AvatarMsg cmd
+    Cmd.batch [ Cmd.map AvatarMsg avatarCmd; Cmd.map TimerMsg timerCmd ]
   | AvatarMsg Avatar.NextMood ->
     let m, cmd = Avatar.update Avatar.NextMood model.Avatar
     { model with Avatar = m }, Cmd.batch [ Cmd.map AvatarMsg cmd; Cmd.ofMsg (SetUserMood m.CurrentUser.Mood) ]
@@ -193,10 +154,14 @@ let update msg model =
           | None -> users |> List.tryHead
           | Some i -> Some users.[(i + 1) % users.Length]
 
+    let nextDriverName = nextDriver |> Option.map (fun u -> u.Name)
+    let connectedNames = users |> List.map (fun u -> u.Name)
+    let avatarMap = users |> List.map (fun u -> u.Name, u.Creature) |> Map.ofList
+
     let driverCmd =
-      match nextDriver with
+      match nextDriverName with
       | None -> Cmd.ofMsg (SetActiveDriver "")
-      | Some u -> Cmd.ofMsg (SetActiveDriver u.Name)
+      | Some u -> Cmd.ofMsg (SetActiveDriver u)
 
     {
       model with
@@ -204,8 +169,9 @@ let update msg model =
             model.Avatar with
                 ActiveDriver = nextDriver
           }
+          Timer = Timer.resetForDriver nextDriverName connectedNames avatarMap
     },
-    driverCmd
+    Cmd.batch [ driverCmd; Cmd.ofMsg (TimerMsg Timer.Start) ]
 
   | AvatarMsg aMsg ->
     let m, cmd = Avatar.update aMsg model.Avatar
@@ -213,9 +179,96 @@ let update msg model =
 
   | SetActiveDriver _ -> model, []
   | SetUserMood _ -> model, []
-  | WidgetStateLoaded(Some state) -> applyWidgetState state model, []
+  | WidgetStateLoaded(Some state) ->
+    let notes = {
+      model.Notes with
+          FreetextContent = state.NotesFreetextContent
+          ListItems =
+            if isNull state.NotesListItems then
+              []
+            else
+              state.NotesListItems.Values |> Seq.toList
+          NoteMode =
+            match state.NotesNoteMode with
+            | "List" -> Notes.List
+            | _ -> Notes.Freetext
+    }
+
+    let timer = {
+      model.Timer with
+          Remaining = TimeSpan.FromSeconds(float state.TimerRemainingSeconds)
+    }
+
+    let timerCmd =
+      if state.TimerIsRunning then
+        Cmd.ofMsg (TimerMsg Timer.Start)
+      else
+        Cmd.none
+
+    {
+      model with
+          Notes = notes
+          Timer = timer
+    },
+    timerCmd
   | WidgetStateLoaded None -> model, []
   | StateSaved -> model, []
+
+let applyWidgetState (state: Session.WidgetState) (model: Model) =
+  let notes = {
+    model.Notes with
+        FreetextContent = state.NotesFreetextContent
+        ListItems =
+          if isNull state.NotesListItems then
+            []
+          else
+            state.NotesListItems.Values |> Seq.toList
+        NoteMode =
+          match state.NotesNoteMode with
+          | "List" -> Notes.List
+          | _ -> Notes.Freetext
+  }
+
+  let timer = {
+    model.Timer with
+        Remaining = TimeSpan.FromSeconds(float state.TimerRemainingSeconds)
+  }
+
+  {
+    model with
+        Notes = notes
+        Timer = timer
+  }
+
+let shouldPersist (msg: Msg) (_model: Model) =
+  match msg with
+  | NotesMsg _ -> true
+  | TimerMsg Timer.Start
+  | TimerMsg Timer.Stop
+  | TimerMsg Timer.Pause
+  | TimerMsg Timer.SkipTimer
+  | TimerMsg Timer.SkipPause
+  | TimerMsg Timer.WorkFinished
+  | TimerMsg Timer.BreakFinished -> true
+  | _ -> false
+
+let toWidgetState (model: Model) : Session.WidgetStateSave =
+  let listItems =
+    model.Notes.ListItems
+    |> List.mapi (fun i item -> string i, item)
+    |> dict
+    |> System.Collections.Generic.Dictionary
+
+  {
+    NotesFreetextContent = model.Notes.FreetextContent
+    NotesListItems = listItems
+    NotesNoteMode =
+      match model.Notes.NoteMode with
+      | Notes.List -> "List"
+      | _ -> "Freetext"
+    TimerRemainingSeconds = int model.Timer.Remaining.TotalSeconds
+    TimerIsRunning = model.Timer.State = Timer.Running
+  }
 
 let private outerBindings: KeyBinding<Model, Msg> list = [
   KeyBinding.dynamic (SpecialKey ConsoleKey.Backspace) (fun _ -> {
@@ -282,15 +335,15 @@ let private withPanelKeys (panelWidget: IWidget) (panelKeyMap: IKeyMap) (focused
 
 let private topRowLayout =
   layout "top-row"
-  |> splitVertically [|
-    layout "notes" |> withRatio 1
-    layout "todo" |> withRatio 1
-    layout "timer" |> withRatio 1
-  |]
+  |> splitVertically [| layout "notes" |> withRatio 1; layout "todo" |> withRatio 1 |]
 
 let private workAreaLayout =
   layout "work-area"
-  |> splitHorizontally [| layout "top" |> withRatio 2; layout "bottom" |> withRatio 1 |]
+  |> splitHorizontally [|
+    layout "top" |> withRatio 2
+    layout "timer" |> withRatio 1
+    layout "bottom" |> withRatio 1
+  |]
 
 let private sessionLayout =
   layout "session"
@@ -345,17 +398,17 @@ let widget (model: Model) : IWidget =
                               (model.Focus = 2)),
                           topPort "todo"
                         )
-
-                        ctx.Render(
-                          focusableBox
-                            "Timer"
-                            3
-                            (focusStateFor 3)
-                            (withPanelKeys (Timer.widget model.Timer) (Timer.keyMap model.Timer) (model.Focus = 3)),
-                          topPort "timer"
-                        )
                   },
                   workPort "top"
+                )
+
+                ctx.Render(
+                  focusableBox
+                    "Timer"
+                    3
+                    (focusStateFor 3)
+                    (withPanelKeys (Timer.widget model.Timer) (Timer.keyMap model.Timer) (model.Focus = 3)),
+                  workPort "timer"
                 )
 
                 ctx.Render(

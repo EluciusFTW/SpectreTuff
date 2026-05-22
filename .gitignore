@@ -125,3 +125,6 @@ NDependOut/
 # macOS
 .DS_Store
 **/.DS_Store
+
+# Local env / secrets
+.env
