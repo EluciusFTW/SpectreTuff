@@ -1,6 +1,7 @@
 module Avatar
 
 open System
+open System.Collections.Generic
 open Spectre.Console
 open Spectre.Tui
 open Keymap
@@ -51,51 +52,69 @@ type Msg =
   | BecomeDriver
   | UpdateSession of Session.Data
 
-let private buildUsers (data: Session.Data) (currentUser: string) (myCreature: Creature) (myMood: Mood) =
-  if isNull data.ConnectedUsers then
-    [
-      {
-        Name = currentUser
-        Creature = myCreature
-        Mood = myMood
-      }
-    ]
-  else
-    data.ConnectedUsers
-    |> Seq.map (fun kv ->
-      match kv.Key = currentUser with
-      | true -> {
-          Name = kv.Key
-          Creature = myCreature
-          Mood = myMood
-        }
-      | false -> {
-          Name = kv.Key
-          Creature = creatureByName kv.Value.Avatar
-          Mood = moodFromString kv.Value.Mood
-        })
-    |> Seq.toList
+let private parsePresence (value: string) =
+  match value with
+  | null -> None, Neutral
+  | s ->
+    let parts = s.Split('|')
+
+    match parts with
+    | [| av; mood |] -> Some av, moodFromString mood
+    | _ -> None, Neutral
+
+let applyConnectedUsers (connectedUsers: Dictionary<string, string>) (model: Model) : Model =
+  match isNull (connectedUsers :> obj) with
+  | true -> model
+  | false ->
+    let users =
+      connectedUsers
+      |> Seq.map (fun kv ->
+        let avatarOpt, mood = parsePresence kv.Value
+
+        match kv.Key = model.CurrentUser.Name with
+        | true -> { model.CurrentUser with Mood = mood }
+        | false -> {
+            Name = kv.Key
+            Creature = avatarOpt |> Option.map creatureByName |> Option.defaultWith resolveCreature
+            Mood = mood
+          })
+      |> Seq.toList
+
+    let me =
+      users
+      |> List.tryFind (fun u -> u.Name = model.CurrentUser.Name)
+      |> Option.defaultValue model.CurrentUser
+
+    {
+      model with
+          Users = users
+          CurrentUser = me
+          ActiveDriver =
+            match model.ActiveDriver with
+            | None -> None
+            | Some d -> users |> List.tryFind (fun u -> u.Name = d.Name)
+    }
 
 let init (currentUser: string) (data: Session.Data) =
   let myCreature = resolveCreature ()
-  let myMood = Neutral
-  let users = buildUsers data currentUser myCreature myMood
 
-  let me =
-    users
-    |> List.tryFind (fun u -> u.Name = currentUser)
-    |> Option.defaultValue {
-      Name = currentUser
-      Creature = myCreature
-      Mood = myMood
-    }
+  let me = {
+    Name = currentUser
+    Creature = myCreature
+    Mood = Neutral
+  }
 
   {
-    Users = users
+    Users = [ me ]
     ActiveDriver =
       match String.IsNullOrWhiteSpace(data.ActiveDriver) with
       | true -> None
-      | false -> users |> List.tryFind (fun u -> u.Name = data.ActiveDriver)
+      | false ->
+        Some {
+          Name = data.ActiveDriver
+          Creature = resolveCreature ()
+          Mood = Neutral
+        }
     CurrentUser = me
   }
 
@@ -129,20 +148,12 @@ let update msg model =
   | BecomeDriver -> model, []
 
   | UpdateSession data ->
-    let users = buildUsers data model.CurrentUser.Name model.CurrentUser.Creature model.CurrentUser.Mood
-
-    let me =
-      users
-      |> List.tryFind (fun u -> u.Name = model.CurrentUser.Name)
-      |> Option.defaultValue model.CurrentUser
-
     {
-      Users = users
-      CurrentUser = me
-      ActiveDriver =
-        match String.IsNullOrWhiteSpace(data.ActiveDriver) with
-        | true -> None
-        | false -> users |> List.tryFind (fun u -> u.Name = data.ActiveDriver)
+      model with
+          ActiveDriver =
+            match String.IsNullOrWhiteSpace(data.ActiveDriver) with
+            | true -> None
+            | false -> model.Users |> List.tryFind (fun u -> u.Name = data.ActiveDriver)
     },
     []
 

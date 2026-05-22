@@ -3,13 +3,28 @@ module Session
 open System.Collections.Generic
 
 [<CLIMutable>]
-type UserPresence = { Avatar: string; Mood: string }
-
-[<CLIMutable>]
 type Data = {
   Goal: string
   StartedAt: int64
   Creator: string
-  ConnectedUsers: Dictionary<string, UserPresence>
   ActiveDriver: string
+}
+
+[<CLIMutable>]
+type WidgetState = {
+  NotesFreetextContent: string
+  NotesListItems: Dictionary<string, string>
+  NotesNoteMode: string
+  TimerRemainingSeconds: int
+  TimerIsRunning: bool
+  ConnectedUsers: Dictionary<string, string>
+}
+
+[<CLIMutable>]
+type WidgetStateSave = {
+  NotesFreetextContent: string
+  NotesListItems: Dictionary<string, string>
+  NotesNoteMode: string
+  TimerRemainingSeconds: int
+  TimerIsRunning: bool
 }

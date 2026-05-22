@@ -13,6 +13,7 @@ type Msg =
   | SessionChanged of string * Session.Data
   | SessionRemoved of string
   | ConnectionError of string
+  | WidgetStateChanged of string * Session.WidgetState option
 
 let private sessionsPath = "sessions"
 
@@ -70,7 +71,6 @@ let createSession (client: FirebaseClient) (user: string) : Async<Result<string,
         Session.Data.Goal = randomSessionName ()
         Session.Data.StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         Session.Data.Creator = user
-        Session.Data.ConnectedUsers = null
         Session.Data.ActiveDriver = null
       }
 
@@ -97,13 +97,16 @@ let joinSession
   : Async<Result<unit, string>> =
   async {
     try
-      let presence = {
-        Session.UserPresence.Avatar = avatarName
-        Session.UserPresence.Mood = "Neutral"
-      }
+      let presence = sprintf "%s|Neutral" avatarName
 
       do!
-        client.Child(sessionsPath).Child(sessionId).Child("connectedUsers").Child(user).PutAsync(presence :> obj)
+        client
+          .Child(sessionsPath)
+          .Child(sessionId)
+          .Child("widgetState")
+          .Child("connectedUsers")
+          .Child(user)
+          .PutAsync(presence :> obj)
         |> Async.AwaitTask
 
       return Ok()
@@ -115,7 +118,13 @@ let leaveSession (client: FirebaseClient) (sessionId: string) (user: string) : A
   async {
     try
       do!
-        client.Child(sessionsPath).Child(sessionId).Child("connectedUsers").Child(user).DeleteAsync()
+        client
+          .Child(sessionsPath)
+          .Child(sessionId)
+          .Child("widgetState")
+          .Child("connectedUsers")
+          .Child(user)
+          .DeleteAsync()
         |> Async.AwaitTask
 
       return Ok()
@@ -137,16 +146,18 @@ let clearActiveDriver (client: FirebaseClient) sessionId =
       |> Async.AwaitTask
   }
 
-let setUserMood (client: FirebaseClient) sessionId user (moodName: string) =
+let setUserPresence (client: FirebaseClient) sessionId user (avatarName: string) (moodName: string) =
   async {
+    let presence = sprintf "%s|%s" avatarName moodName
+
     do!
       client
         .Child(sessionsPath)
         .Child(sessionId)
+        .Child("widgetState")
         .Child("connectedUsers")
         .Child(user)
-        .Child("Mood")
-        .PutAsync(moodName :> obj)
+        .PutAsync(presence :> obj)
       |> Async.AwaitTask
   }
 
@@ -188,3 +199,53 @@ let private subscribe (client: FirebaseClient) (dispatch: Msg -> unit) : IDispos
 let subscription (client: FirebaseClient) (wrap: Msg -> 'appMsg) _ = [
   [ "firebase" ], fun dispatch -> subscribe client (wrap >> dispatch)
 ]
+
+let saveWidgetState (client: FirebaseClient) (sessionId: string) (state: Session.WidgetStateSave) : Async<unit> =
+  async {
+    try
+      do!
+        client.Child(sessionsPath).Child(sessionId).Child("widgetState").PatchAsync(state)
+        |> Async.AwaitTask
+    with _ ->
+      ()
+  }
+
+let loadWidgetState (client: FirebaseClient) (sessionId: string) : Async<Session.WidgetState option> =
+  async {
+    try
+      let! result =
+        client.Child(sessionsPath).Child(sessionId).Child("widgetState").OnceSingleAsync<Session.WidgetState>()
+        |> Async.AwaitTask
+
+      return
+        match isNull (box result) with
+        | true -> None
+        | false -> Some result
+    with _ ->
+      return None
+  }
+
+let private subscribeWidgetState (client: FirebaseClient) (sessionId: string) (dispatch: Msg -> unit) : IDisposable =
+  let onNext (ev: FirebaseEvent<Session.WidgetState>) =
+    try
+      let state =
+        match isNull (box ev.Object) with
+        | true -> None
+        | false -> Some ev.Object
+
+      dispatch (WidgetStateChanged(sessionId, state))
+    with e ->
+      dispatch (ConnectionError e.Message)
+
+  let onError (e: exn) =
+    dispatch (ConnectionError e.Message)
+
+  client
+    .Child(sessionsPath)
+    .Child(sessionId)
+    .Child("widgetState")
+    .AsObservable<Session.WidgetState>()
+    .Subscribe(Action<FirebaseEvent<Session.WidgetState>> onNext, Action<exn> onError)
+
+let widgetStateSubscription (client: FirebaseClient) (sessionId: string) (wrap: Msg -> 'appMsg) =
+  [ "widget-state"; sessionId ], fun dispatch -> subscribeWidgetState client sessionId (wrap >> dispatch)

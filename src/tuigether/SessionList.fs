@@ -97,7 +97,11 @@ let private bindings: KeyBinding<Model, Msg> list = [
       && model.SelectedIndex < model.Sessions.Length
       && (let _, data = model.Sessions.[model.SelectedIndex]
           not (isNull (data :> obj)) && data.Creator = model.User)
-    { Description = "delete session"; Message = if canDelete then Some DeleteSelected else None })
+
+    {
+      Description = "delete session"
+      Message = if canDelete then Some DeleteSelected else None
+    })
 ]
 
 let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
@@ -116,13 +120,8 @@ let widget (model: Model) : IWidget =
         match data :> obj with
         | null -> None
         | _ ->
-          let userCount =
-            match data.ConnectedUsers with
-            | null -> 0
-            | users -> users.Count
-
           let startedAt = DateTimeOffset.FromUnixTimeMilliseconds(data.StartedAt).ToString("yyyy-MM-dd HH:mm")
 
-          Some(ListItem(sprintf "%-40s  %s  %d user(s)" data.Goal startedAt userCount)))
+          Some(ListItem(sprintf "%-40s  %s" data.Goal startedAt)))
 
     list items |> selectedIndex model.SelectedIndex |> wrapAround :> IWidget

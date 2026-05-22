@@ -1,6 +1,7 @@
 module SessionView
 
 open System
+open System.Collections.Generic
 open Elmish
 open Spectre.Tui
 open Spectre.Tui.App
@@ -33,6 +34,77 @@ type Msg =
   | UpdateSession of Session.Data
   | SetActiveDriver of string
   | SetUserMood of Mood
+  | WidgetStateLoaded of Session.WidgetState option
+  | StateSaved
+
+let shouldPersist =
+  function
+  | NotesMsg(Notes.TypeChar _ | Notes.TypeBackspace | Notes.TypeNewLine | Notes.AddItem | Notes.DeleteItem | Notes.SwitchToFreetext | Notes.SwitchToList) ->
+    true
+  | TimerMsg _ -> true
+  | AvatarMsg Avatar.NextMood -> true
+  | _ -> false
+
+let toWidgetState (model: Model) : Session.WidgetStateSave =
+  let listItemsDict =
+    model.Notes.ListItems
+    |> List.mapi (fun i item -> string i, item)
+    |> dict
+    |> Dictionary<string, string>
+
+  {
+    NotesFreetextContent = model.Notes.FreetextContent
+    NotesListItems = listItemsDict
+    NotesNoteMode =
+      match model.Notes.NoteMode with
+      | Notes.Freetext -> "Freetext"
+      | Notes.List -> "List"
+    TimerRemainingSeconds = int model.Timer.Remaining.TotalSeconds
+    TimerIsRunning =
+      match model.Timer.State with
+      | Timer.Running -> true
+      | Timer.Stopped -> false
+  }
+
+let applyWidgetState (state: Session.WidgetState) (model: Model) : Model =
+  let listItems =
+    match isNull (state.NotesListItems :> obj) with
+    | true -> []
+    | false ->
+      state.NotesListItems
+      |> Seq.sortBy (fun kv -> int kv.Key)
+      |> Seq.map (fun kv -> kv.Value)
+      |> Seq.toList
+
+  let notes = {
+    model.Notes with
+        FreetextContent = state.NotesFreetextContent |> Option.ofObj |> Option.defaultValue ""
+        ListItems = listItems
+        NoteMode =
+          match state.NotesNoteMode with
+          | "List" -> Notes.List
+          | _ -> Notes.Freetext
+        InputMode = Notes.Normal
+        ListIndex = 0
+  }
+
+  let timer = {
+    model.Timer with
+        Remaining = TimeSpan.FromSeconds(float state.TimerRemainingSeconds)
+        State =
+          match state.TimerIsRunning with
+          | true -> Timer.Running
+          | false -> Timer.Stopped
+  }
+
+  let avatar = Avatar.applyConnectedUsers state.ConnectedUsers model.Avatar
+
+  {
+    model with
+        Notes = notes
+        Timer = timer
+        Avatar = avatar
+  }
 
 let init (user: string) (sessionId: string) (sessionData: Session.Data) = {
   SessionId = sessionId
@@ -134,6 +206,9 @@ let update msg model =
 
   | SetActiveDriver _ -> model, []
   | SetUserMood _ -> model, []
+  | WidgetStateLoaded(Some state) -> applyWidgetState state model, []
+  | WidgetStateLoaded None -> model, []
+  | StateSaved -> model, []
 
 let private outerBindings: KeyBinding<Model, Msg> list = [
   KeyBinding.dynamic (SpecialKey ConsoleKey.Backspace) (fun _ -> {

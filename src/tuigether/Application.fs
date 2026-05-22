@@ -105,16 +105,7 @@ let private buildPanels (model: Model) : Panel list =
         Widget = SessionView.widget viewModel
         KeyMap = SessionView.keyMap viewModel
         HandleKey = fun key -> SessionView.handleKey key viewModel |> Option.map SessionViewMsg
-        Update =
-          fun msg model ->
-            match msg with
-            | SessionViewMsg vMsg ->
-              match model.Page with
-              | SessionViewPage viewModel ->
-                let m, cmd = SessionView.update vMsg viewModel
-                Some({ model with Page = SessionViewPage m }, Cmd.map SessionViewMsg cmd)
-              | _ -> None
-            | _ -> None
+        Update = fun _ _ -> None
       }
     ]
 
@@ -122,21 +113,21 @@ let init (user: string) () =
   let listModel, listCmd = SessionList.init user ()
 
   let avatarName =
-    let envName = System.Environment.GetEnvironmentVariable("TUIGETHER_AVATAR")
+    let envName = Environment.GetEnvironmentVariable("TUIGETHER_AVATAR")
 
-    if System.String.IsNullOrWhiteSpace(envName) then
-      let idx = System.Random.Shared.Next(SpectreTuff.Widgets.Avatar.library.Length)
-      SpectreTuff.Widgets.Avatar.library.[idx].Name
+    if String.IsNullOrWhiteSpace(envName) then
+      let idx = Random.Shared.Next(library.Length)
+      library.[idx].Name
     else
       let found =
-        SpectreTuff.Widgets.Avatar.library
-        |> List.tryFind (fun c -> System.String.Equals(c.Name, envName, System.StringComparison.OrdinalIgnoreCase))
+        library
+        |> List.tryFind (fun c -> String.Equals(c.Name, envName, StringComparison.OrdinalIgnoreCase))
 
       match found with
       | Some c -> c.Name
       | None ->
-        let idx = System.Random.Shared.Next(SpectreTuff.Widgets.Avatar.library.Length)
-        SpectreTuff.Widgets.Avatar.library.[idx].Name
+        let idx = Random.Shared.Next(library.Length)
+        library.[idx].Name
 
   {
     Page = SessionListPage
@@ -185,6 +176,15 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
     model, Cmd.batch [ sessionListCmd; sessionViewCmd ]
   | FirebaseMsg(Firebase.SessionRemoved id) -> model, Cmd.ofMsg (SessionListMsg(SessionList.SessionRemoved id))
   | FirebaseMsg(Firebase.ConnectionError e) -> model, Cmd.ofMsg (SessionListMsg(SessionList.LoadError e))
+  | FirebaseMsg(Firebase.WidgetStateChanged(sessionId, stateOption)) ->
+    match model.Page, stateOption with
+    | SessionViewPage viewModel, Some state when viewModel.SessionId = sessionId ->
+      {
+        model with
+            Page = SessionViewPage(SessionView.applyWidgetState state viewModel)
+      },
+      []
+    | _ -> model, []
 
   | SessionListMsg SessionList.CreateNew ->
     model, Cmd.OfAsync.perform (fun () -> Firebase.createSession client user) () CreateCompleted
@@ -218,7 +218,7 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
     match model.Page with
     | SessionViewPage vm ->
       let cmd =
-        if System.String.IsNullOrEmpty(user) then
+        if String.IsNullOrEmpty(user) then
           Cmd.OfAsync.attempt (fun () -> Firebase.clearActiveDriver client vm.SessionId) () (fun _ ->
             SetActiveDriverCompleted(Ok()))
         else
@@ -237,8 +237,10 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
       let moodName = Avatar.moodToString mood
 
       let cmd =
-        Cmd.OfAsync.attempt (fun () -> Firebase.setUserMood client vm.SessionId model.User moodName) () (fun _ ->
-          SetUserMoodCompleted(Ok()))
+        Cmd.OfAsync.attempt
+          (fun () -> Firebase.setUserPresence client vm.SessionId model.User model.AvatarName moodName)
+          ()
+          (fun _ -> SetUserMoodCompleted(Ok()))
 
       Some(model, cmd)
     | _ -> None
@@ -247,8 +249,15 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
   | SetUserMoodCompleted _ -> model, []
 
   | JoinCompleted result ->
-    match model.Page with
-    | SessionViewPage _ -> model, Cmd.ofMsg (SessionViewMsg(SessionView.JoinCompleted result))
+    match model.Page, result with
+    | SessionViewPage viewModel, Ok() ->
+      model,
+      Cmd.batch [
+        Cmd.ofMsg (SessionViewMsg(SessionView.JoinCompleted result))
+        Cmd.OfAsync.perform (fun () -> Firebase.loadWidgetState client viewModel.SessionId) () (fun state ->
+          SessionViewMsg(SessionView.WidgetStateLoaded state))
+      ]
+    | SessionViewPage _, _ -> model, Cmd.ofMsg (SessionViewMsg(SessionView.JoinCompleted result))
     | _ -> model, []
   | LeaveCompleted _ -> model, []
   | CreateCompleted _ -> model, []
@@ -260,14 +269,26 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
     },
     []
 
+  | SessionViewMsg vMsg ->
+    match model.Page with
+    | SessionViewPage viewModel ->
+      let m, sessionCmd = SessionView.update vMsg viewModel
+
+      let saveCmd =
+        match SessionView.shouldPersist vMsg with
+        | true ->
+          Cmd.OfAsync.perform
+            (fun () -> Firebase.saveWidgetState client m.SessionId (SessionView.toWidgetState m))
+            ()
+            (fun _ -> SessionViewMsg SessionView.StateSaved)
+        | false -> []
+
+      { model with Page = SessionViewPage m }, Cmd.batch [ Cmd.map SessionViewMsg sessionCmd; saveCmd ]
+    | _ -> model, []
+
   | Exit ->
     exitEvent.Set()
     model, []
-
-  | _ ->
-    buildPanels model
-    |> List.tryPick (fun p -> p.Update msg model)
-    |> Option.defaultValue (model, [])
 
 type AppView(model: Model) =
   interface IWidget with
