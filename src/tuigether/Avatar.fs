@@ -52,30 +52,21 @@ type Msg =
   | BecomeDriver
   | UpdateSession of Session.Data
 
-let private parsePresence (value: string) =
-  match value with
-  | null -> None, Neutral
-  | s ->
-    let parts = s.Split('|')
-
-    match parts with
-    | [| av; mood |] -> Some av, moodFromString mood
-    | _ -> None, Neutral
-
-let applyConnectedUsers (connectedUsers: Dictionary<string, string>) (model: Model) : Model =
+let applyConnectedUsers (connectedUsers: Dictionary<string, Session.UserPresence>) (model: Model) : Model =
   match isNull (connectedUsers :> obj) with
   | true -> model
   | false ->
     let users =
       connectedUsers
       |> Seq.map (fun kv ->
-        let avatarOpt, mood = parsePresence kv.Value
+        let presence = kv.Value
+        let mood = moodFromString presence.Mood
 
         match kv.Key = model.CurrentUser.Name with
         | true -> { model.CurrentUser with Mood = mood }
         | false -> {
             Name = kv.Key
-            Creature = avatarOpt |> Option.map creatureByName |> Option.defaultWith resolveCreature
+            Creature = creatureByName presence.Avatar
             Mood = mood
           })
       |> Seq.toList

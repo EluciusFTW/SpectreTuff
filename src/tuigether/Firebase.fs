@@ -97,7 +97,10 @@ let joinSession
   : Async<Result<unit, string>> =
   async {
     try
-      let presence = sprintf "%s|Neutral" avatarName
+      let presence = {
+        Session.UserPresence.Avatar = avatarName
+        Session.UserPresence.Mood = "Neutral"
+      }
 
       do!
         client
@@ -148,7 +151,10 @@ let clearActiveDriver (client: FirebaseClient) sessionId =
 
 let setUserPresence (client: FirebaseClient) sessionId user (avatarName: string) (moodName: string) =
   async {
-    let presence = sprintf "%s|%s" avatarName moodName
+    let presence = {
+      Session.UserPresence.Avatar = avatarName
+      Session.UserPresence.Mood = moodName
+    }
 
     do!
       client
