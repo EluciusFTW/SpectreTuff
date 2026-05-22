@@ -95,20 +95,19 @@ let keyMap model =
   KeyBinding.toKeyMap bindings model
 
 let widget (model: Model) : IWidget =
-  if model.Sessions.IsEmpty then
-    ofString "No sessions yet. Press [n] to create one." :> IWidget
-  else
+  match model.Sessions with
+  | [] -> ofString "No sessions yet. Press [n] to create one." :> IWidget
+  | _ ->
     let items =
       model.Sessions
       |> List.choose (fun (_, data) ->
-        if isNull (data :> obj) then
-          None
-        else
+        match data :> obj with
+        | null -> None
+        | _ ->
           let userCount =
-            if isNull data.ConnectedUsers then
-              0
-            else
-              data.ConnectedUsers.Count
+            match data.ConnectedUsers with
+            | null -> 0
+            | users -> users.Count
 
           let startedAt = DateTimeOffset.FromUnixTimeMilliseconds(data.StartedAt).ToString("yyyy-MM-dd HH:mm")
 

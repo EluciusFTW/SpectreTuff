@@ -35,7 +35,10 @@ let private bindings: KeyBinding<Model, Msg> list = [
       })
   KeyBinding.dynamic (CharKey 'r') (fun model -> {
     Description = "reset"
-    Message = if model.State = Stopped then Some Reset else None
+    Message =
+      match model.State with
+      | Stopped -> Some Reset
+      | Running -> None
   })
 ]
 

@@ -119,10 +119,12 @@ let private subscribe (client: FirebaseClient) (dispatch: Msg -> unit) : IDispos
 
   let onNext (ev: FirebaseEvent<Session.Data>) =
     try
-      if not (String.IsNullOrEmpty ev.Key) && not (isNull (box ev.Object)) then
+      match String.IsNullOrEmpty ev.Key, isNull (box ev.Object) with
+      | false, false ->
         match ev.EventType with
         | FirebaseEventType.Delete -> dispatch (SessionRemoved ev.Key)
         | _ -> dispatch (SessionChanged(ev.Key, ev.Object))
+      | _ -> ()
     with e ->
       dispatch (ConnectionError e.Message)
 

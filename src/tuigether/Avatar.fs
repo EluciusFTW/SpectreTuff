@@ -11,10 +11,9 @@ type Msg = | NoOp
 
 let init (sessionData: Session.Data) = {
   ConnectedUsers =
-    if isNull sessionData.ConnectedUsers then
-      []
-    else
-      sessionData.ConnectedUsers.Keys |> Seq.toList
+    match sessionData.ConnectedUsers with
+    | null -> []
+    | users -> users.Keys |> Seq.toList
 }
 
 let update _msg model =
@@ -29,8 +28,8 @@ let keyMap model =
   KeyBinding.toKeyMap bindings model
 
 let widget (model: Model) : IWidget =
-  if model.ConnectedUsers.IsEmpty then
-    ofString "  (no users connected)" :> IWidget
-  else
-    let lines = model.ConnectedUsers |> List.map (sprintf "  • %s") |> String.concat "\n"
+  match model.ConnectedUsers with
+  | [] -> ofString "  (no users connected)" :> IWidget
+  | users ->
+    let lines = users |> List.map (sprintf "  • %s") |> String.concat "\n"
     ofString lines :> IWidget

@@ -54,7 +54,11 @@ let private mainLayout (logVisible: bool) =
     layout "top"
     |> splitVertically [|
       layout "content" |> withRatio 3
-      layout "log" |> withRatio 1 |> (if logVisible then show else hide)
+      layout "log"
+      |> withRatio 1
+      |> (match logVisible with
+          | true -> show
+          | false -> hide)
     |]
     layout "help" |> withFixedSize (Some 1)
   |]
@@ -215,15 +219,15 @@ type AppView(model: Model) =
           }
 
         let renderedPanel: IWidget =
-          if panel.Boxed then
-            focusableBox panel.Title panel.Number panel.Focused composedWidget :> IWidget
-          else
-            composedWidget
+          match panel.Boxed with
+          | true -> focusableBox panel.Title panel.Number panel.Focused composedWidget :> IWidget
+          | false -> composedWidget
 
         ctx.Render(renderedPanel, slotPort panel.LayoutSlot)
 
-      if model.LogVisible then
-        Log.view model.LogModel ctx (slotPort "log")
+      match model.LogVisible with
+      | true -> Log.view model.LogModel ctx (slotPort "log")
+      | false -> ()
 
       ctx.Render(help [ globalKeyMap ] |> leftAligned, slotPort "help")
 

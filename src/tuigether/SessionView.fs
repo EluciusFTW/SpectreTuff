@@ -97,11 +97,11 @@ let private outerBindings: KeyBinding<Model, Msg> list = [
 let private panelCount = 5
 
 let private tryFocusNumber (key: ConsoleKeyInfo) =
-  if key.KeyChar >= '1' && key.KeyChar <= '9' then
-    let n = int key.KeyChar - int '0'
+  match key.KeyChar with
+  | c when c >= '1' && c <= '9' ->
+    let n = int c - int '0'
     if n <= panelCount then Some(FocusPanel n) else None
-  else
-    None
+  | _ -> None
 
 let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
   tryFocusNumber key

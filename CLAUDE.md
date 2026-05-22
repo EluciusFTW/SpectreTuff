@@ -30,3 +30,4 @@ Formatting rules are in `.editorconfig`.
 - No abbreviations in parameter names.
 - Boolean toggles use paired functions (`showFoo`/`hideFoo`, `foo`/`noFoo`) — never `withFoo: bool`.
 - API names are symmetric (e.g. `withHorizontalAlignment` / `withVerticalAlignment`).
+- Prefer `match` over `if`/`else`.
