@@ -28,6 +28,7 @@ type Msg =
   | JoinCompleted of Result<unit, string>
   | LeaveCompleted of Result<unit, string>
   | CreateCompleted of Result<string, string>
+  | DeleteCompleted of Result<unit, string>
   | ToggleLog
   | Exit
 
@@ -112,7 +113,7 @@ let private buildPanels (model: Model) : Panel list =
     ]
 
 let init (user: string) () =
-  let listModel, listCmd = SessionList.init ()
+  let listModel, listCmd = SessionList.init user ()
 
   {
     Page = SessionListPage
@@ -145,7 +146,10 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
   | FirebaseMsg(Firebase.ConnectionError e) -> model, Cmd.ofMsg (SessionListMsg(SessionList.LoadError e))
 
   | SessionListMsg SessionList.CreateNew ->
-    model, Cmd.OfAsync.perform (fun () -> Firebase.createSession client) () CreateCompleted
+    model, Cmd.OfAsync.perform (fun () -> Firebase.createSession client user) () CreateCompleted
+  | SessionListMsg SessionList.DeleteSelected when not model.SessionList.Sessions.IsEmpty ->
+    let sessionId, _ = model.SessionList.Sessions.[model.SessionList.SelectedIndex]
+    model, Cmd.OfAsync.perform (fun () -> Firebase.deleteSession client sessionId) () DeleteCompleted
   | SessionListMsg SessionList.OpenSelected when not model.SessionList.Sessions.IsEmpty ->
     let sessionId, sessionData = model.SessionList.Sessions.[model.SessionList.SelectedIndex]
     let viewModel = SessionView.init user sessionId sessionData
@@ -175,6 +179,7 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
     | _ -> model, []
   | LeaveCompleted _ -> model, []
   | CreateCompleted _ -> model, []
+  | DeleteCompleted _ -> model, []
   | ToggleLog ->
     {
       model with

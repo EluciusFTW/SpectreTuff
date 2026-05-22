@@ -63,17 +63,27 @@ let private randomSessionName () =
   let noun = nouns.[rng.Next nouns.Length]
   sprintf "The %s %s" adj noun
 
-let createSession (client: FirebaseClient) : Async<Result<string, string>> =
+let createSession (client: FirebaseClient) (user: string) : Async<Result<string, string>> =
   async {
     try
       let data = {
         Session.Data.Goal = randomSessionName ()
         Session.Data.StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        Session.Data.Creator = user
         Session.Data.ConnectedUsers = null
       }
 
       let! result = client.Child(sessionsPath).PostAsync(data) |> Async.AwaitTask
       return Ok result.Key
+    with e ->
+      return Error e.Message
+  }
+
+let deleteSession (client: FirebaseClient) (sessionId: string) : Async<Result<unit, string>> =
+  async {
+    try
+      do! client.Child(sessionsPath).Child(sessionId).DeleteAsync() |> Async.AwaitTask
+      return Ok()
     with e ->
       return Error e.Message
   }

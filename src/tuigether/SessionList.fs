@@ -9,6 +9,7 @@ type Model = {
   Sessions: (string * Session.Data) list
   SelectedIndex: int
   Status: string
+  User: string
 }
 
 type Msg =
@@ -16,16 +17,18 @@ type Msg =
   | Down
   | OpenSelected
   | CreateNew
+  | DeleteSelected
   | SessionsLoaded of (string * Session.Data) list
   | SessionChanged of string * Session.Data
   | SessionRemoved of string
   | LoadError of string
 
-let init () =
+let init (user: string) () =
   {
     Sessions = []
     SelectedIndex = 0
     Status = "loading…"
+    User = user
   },
   []
 
@@ -49,6 +52,7 @@ let update msg model =
     []
   | OpenSelected -> model, []
   | CreateNew -> model, []
+  | DeleteSelected -> model, []
   | SessionsLoaded sessions ->
     {
       model with
@@ -86,6 +90,14 @@ let private bindings: KeyBinding<Model, Msg> list = [
   KeyBinding.createSpecial ConsoleKey.DownArrow "down" Down
   KeyBinding.createSpecial ConsoleKey.Enter "open" OpenSelected
   KeyBinding.create 'n' "new session" CreateNew
+  KeyBinding.dynamic (SpecialKey ConsoleKey.Delete) (fun model ->
+    let canDelete =
+      not model.Sessions.IsEmpty
+      && model.SelectedIndex >= 0
+      && model.SelectedIndex < model.Sessions.Length
+      && (let _, data = model.Sessions.[model.SelectedIndex]
+          not (isNull (data :> obj)) && data.Creator = model.User)
+    { Description = "delete session"; Message = if canDelete then Some DeleteSelected else None })
 ]
 
 let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
