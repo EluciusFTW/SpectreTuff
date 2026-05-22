@@ -19,6 +19,7 @@
     <Compile Include="Keylistener.fs" />
     <Compile Include="Tick.fs" />
     <Compile Include="Keymap.fs" />
+    <Compile Include="GlobalKeys.fs" />
     <Compile Include="Firebase.fs" />
     <Compile Include="Log.fs" />
     <Compile Include="Notes.fs" />

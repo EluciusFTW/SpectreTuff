@@ -26,6 +26,7 @@ type Msg =
   | FirebaseMsg of Firebase.Msg
   | SessionListMsg of SessionList.Msg
   | SessionViewMsg of SessionView.Msg
+  | GlobalKeyMsg of GlobalKeys.Msg
   | JoinCompleted of Result<unit, string>
   | SetActiveDriverCompleted of Result<unit, string>
   | SetUserMoodCompleted of Result<unit, string>
@@ -159,10 +160,13 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
       | ConsoleKey.Q -> model, Cmd.ofMsg Exit
       | ConsoleKey.L -> model, Cmd.ofMsg ToggleLog
       | _ ->
-        focusedPanel
-        |> Option.bind (fun p -> p.HandleKey key)
-        |> Option.map (fun msg -> model, Cmd.ofMsg msg)
-        |> Option.defaultValue (model, [])
+        match model.Page, GlobalKeys.handleKey key with
+        | SessionViewPage _, Some gMsg -> model, Cmd.ofMsg (GlobalKeyMsg gMsg)
+        | _ ->
+          focusedPanel
+          |> Option.bind (fun p -> p.HandleKey key)
+          |> Option.map (fun msg -> model, Cmd.ofMsg msg)
+          |> Option.defaultValue (model, [])
 
   | FirebaseMsg(Firebase.SessionsLoaded sessions) ->
     model, Cmd.ofMsg (SessionListMsg(SessionList.SessionsLoaded sessions))
@@ -178,13 +182,9 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
   | FirebaseMsg(Firebase.SessionRemoved id) -> model, Cmd.ofMsg (SessionListMsg(SessionList.SessionRemoved id))
   | FirebaseMsg(Firebase.ConnectionError e) -> model, Cmd.ofMsg (SessionListMsg(SessionList.LoadError e))
   | FirebaseMsg(Firebase.WidgetStateChanged(sessionId, stateOption)) ->
-    match model.Page, stateOption with
-    | SessionViewPage viewModel, Some state when viewModel.SessionId = sessionId ->
-      {
-        model with
-            Page = SessionViewPage(SessionView.applyWidgetState state viewModel)
-      },
-      []
+    match model.Page with
+    | SessionViewPage vm when vm.SessionId = sessionId ->
+      model, Cmd.ofMsg (SessionViewMsg(SessionView.WidgetStateLoaded stateOption))
     | _ -> model, []
 
   | FirebaseMsg(Firebase.ConnectedUserChanged(sessionId, user, presence)) ->
@@ -299,6 +299,16 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
       { model with Page = SessionViewPage m }, Cmd.batch [ Cmd.map SessionViewMsg sessionCmd; saveCmd ]
     | _ -> model, []
 
+  | GlobalKeyMsg gMsg ->
+    let timerMsg =
+      match gMsg with
+      | GlobalKeys.PauseDrive -> Timer.Pause
+      | GlobalKeys.ResumeDrive -> Timer.Start
+      | GlobalKeys.Teleport -> Timer.SkipTimer
+      | GlobalKeys.NextDrive -> Timer.SwitchDriver
+
+    model, Cmd.ofMsg (SessionViewMsg(SessionView.TimerMsg timerMsg))
+
   | Tick -> model, []
 
   | Exit ->
@@ -338,7 +348,12 @@ type AppView(model: Model) =
       | true -> Log.view model.LogModel ctx (slotPort "log")
       | false -> ()
 
-      ctx.Render(help [ globalKeyMap ] |> leftAligned, slotPort "help")
+      let helpMaps =
+        match model.Page with
+        | SessionViewPage _ -> [ GlobalKeys.keyMap; globalKeyMap ]
+        | _ -> [ globalKeyMap ]
+
+      ctx.Render(help helpMaps |> leftAligned, slotPort "help")
 
 let view (renderer: Renderer) (model: Model) _dispatch =
   renderer.Draw(fun ctx _ -> ctx.Render(AppView model))

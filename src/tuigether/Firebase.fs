@@ -234,26 +234,33 @@ let loadWidgetState (client: FirebaseClient) (sessionId: string) : Async<Session
   }
 
 let private subscribeWidgetState (client: FirebaseClient) (sessionId: string) (dispatch: Msg -> unit) : IDisposable =
-  let onNext (ev: FirebaseEvent<Session.WidgetState>) =
-    try
-      let state =
-        match isNull (box ev.Object) with
-        | true -> None
-        | false -> Some ev.Object
+  // widgetState's children are heterogeneous (scalars + dictionaries), so
+  // AsObservable<WidgetState> cannot deserialize per-child events into a full
+  // WidgetState — every event would otherwise arrive as null. Instead, treat
+  // any child event as a "something changed" signal and re-load the full
+  // widgetState via OnceSingleAsync.
+  let reload () =
+    async {
+      try
+        let! state = loadWidgetState client sessionId
+        dispatch (WidgetStateChanged(sessionId, state))
+      with e ->
+        dispatch (ConnectionError(sprintf "[%s] %s" (e.GetType().Name) e.Message))
+    }
+    |> Async.Start
 
-      dispatch (WidgetStateChanged(sessionId, state))
-    with e ->
-      dispatch (ConnectionError e.Message)
+  let onNext (_ev: FirebaseEvent<obj>) =
+    reload ()
 
   let onError (e: exn) =
-    dispatch (ConnectionError e.Message)
+    dispatch (ConnectionError(sprintf "[%s] %s" (e.GetType().Name) e.Message))
 
   client
     .Child(sessionsPath)
     .Child(sessionId)
     .Child("widgetState")
-    .AsObservable<Session.WidgetState>()
-    .Subscribe(Action<FirebaseEvent<Session.WidgetState>> onNext, Action<exn> onError)
+    .AsObservable<obj>()
+    .Subscribe(Action<FirebaseEvent<obj>> onNext, Action<exn> onError)
 
 let widgetStateSubscription (client: FirebaseClient) (sessionId: string) (wrap: Msg -> 'appMsg) =
   [ "widget-state"; sessionId ], fun dispatch -> subscribeWidgetState client sessionId (wrap >> dispatch)

@@ -4,7 +4,6 @@ open System
 open Elmish
 open Spectre.Console
 open Spectre.Tui
-open Keymap
 open SpectreTuff
 open SpectreTuff.Widgets
 
@@ -28,13 +27,14 @@ type Model = {
   ActiveDriver: string option
   ConnectedUsers: string list
   UserAvatars: Map<string, Creature>
+  TickEpoch: int
 }
 
 type Msg =
   | Start
   | Stop
   | Pause
-  | Tick
+  | Tick of int
   | Reset
   | SwitchDriver
   | SkipTimer
@@ -54,7 +54,8 @@ let private flashFrameCount = 6
 
 // ─── Commands ────────────────────────────────────────────────────────────────
 
-let private tickCmd = Cmd.OfAsync.perform (fun () -> async { do! Async.Sleep 1000 }) () (fun () -> Tick)
+let private tickCmd (epoch: int) =
+  Cmd.OfAsync.perform (fun () -> async { do! Async.Sleep 1000 }) () (fun () -> Tick epoch)
 
 let private flashTickCmd = Cmd.OfAsync.perform (fun () -> async { do! Async.Sleep 200 }) () (fun () -> FlashTick)
 
@@ -95,15 +96,17 @@ let init () = {
   ActiveDriver = None
   ConnectedUsers = []
   UserAvatars = Map.empty
+  TickEpoch = 0
 }
 
-let resetForDriver (driver: string option) (users: string list) (avatars: Map<string, Creature>) = {
+let resetForDriver (previous: Model) (driver: string option) (users: string list) (avatars: Map<string, Creature>) = {
   Remaining = workDuration
   Phase = Work
   State = Idle
   ActiveDriver = driver
   ConnectedUsers = users
   UserAvatars = avatars
+  TickEpoch = previous.TickEpoch + 1
 }
 
 // ─── Update ──────────────────────────────────────────────────────────────────
@@ -113,14 +116,35 @@ let update msg model =
   | Start ->
     match model.State with
     | Idle
-    | Paused -> { model with State = Running }, tickCmd
+    | Paused ->
+      let epoch = model.TickEpoch + 1
+
+      {
+        model with
+            State = Running
+            TickEpoch = epoch
+      },
+      tickCmd epoch
     | _ -> model, []
-  | Stop -> { model with State = Idle }, []
+  | Stop ->
+    {
+      model with
+          State = Idle
+          TickEpoch = model.TickEpoch + 1
+    },
+    []
   | Pause ->
     match model.State with
-    | Running -> { model with State = Paused }, []
+    | Running ->
+      {
+        model with
+            State = Paused
+            TickEpoch = model.TickEpoch + 1
+      },
+      []
     | _ -> model, []
-  | Tick ->
+  | Tick epoch when epoch <> model.TickEpoch -> model, []
+  | Tick _ ->
     match model.State with
     | Running ->
       let next = model.Remaining - TimeSpan.FromSeconds 1.0
@@ -128,7 +152,7 @@ let update msg model =
       if next <= TimeSpan.Zero then
         { model with Remaining = TimeSpan.Zero }, Cmd.ofMsg WorkFinished
       else
-        { model with Remaining = next }, tickCmd
+        { model with Remaining = next }, tickCmd model.TickEpoch
     | _ -> model, []
   | WorkFinished ->
     sendNotification ()
@@ -219,50 +243,6 @@ let update msg model =
           UserAvatars = avatars
     },
     []
-
-// ─── Key bindings ────────────────────────────────────────────────────────────
-
-let private bindings: KeyBinding<Model, Msg> list = [
-  KeyBinding.dynamic (CharKey 's') (fun model ->
-    match model.State with
-    | Running -> {
-        Description = "pause"
-        Message = Some Pause
-      }
-    | Idle
-    | Paused -> {
-        Description = "start"
-        Message = Some Start
-      }
-    | _ -> { Description = ""; Message = None })
-  KeyBinding.dynamic (CharKey 'j') (fun model ->
-    match model.State with
-    | Running
-    | Paused -> {
-        Description = "skip timer"
-        Message = Some SkipTimer
-      }
-    | Breaking _ -> {
-        Description = "skip pause"
-        Message = Some SkipPause
-      }
-    | _ -> { Description = ""; Message = None })
-  KeyBinding.dynamic (CharKey 'r') (fun model -> {
-    Description = "reset"
-    Message =
-      match model.State with
-      | Idle
-      | Paused -> Some Reset
-      | _ -> None
-  })
-  KeyBinding.create 'n' "next driver" SwitchDriver
-]
-
-let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
-  KeyBinding.handleKey bindings key model
-
-let keyMap model =
-  KeyBinding.toKeyMap bindings model
 
 // ─── Widget ──────────────────────────────────────────────────────────────────
 

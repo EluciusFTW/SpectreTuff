@@ -49,7 +49,6 @@ type Model = {
 
 type Msg =
   | NextMood
-  | BecomeDriver
   | UpdateSession of Session.Data
 
 let applyConnectedUsers (connectedUsers: Dictionary<string, Session.UserPresence>) (model: Model) : Model =
@@ -185,8 +184,6 @@ let update msg model =
     },
     []
 
-  | BecomeDriver -> model, []
-
   | UpdateSession data ->
     {
       model with
@@ -197,10 +194,7 @@ let update msg model =
     },
     []
 
-let private bindings: KeyBinding<Model, Msg> list = [
-  KeyBinding.create 'm' "mood" NextMood
-  KeyBinding.create 'd' "drive" BecomeDriver
-]
+let private bindings: KeyBinding<Model, Msg> list = [ KeyBinding.create 'm' "mood" NextMood ]
 
 let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
   KeyBinding.handleKey bindings key model

@@ -112,7 +112,7 @@ let update msg model =
             model.Avatar with
                 ActiveDriver = nextUser
           }
-          Timer = Timer.resetForDriver nextDriverName connectedNames avatarMap
+          Timer = Timer.resetForDriver model.Timer nextDriverName connectedNames avatarMap
     },
     Cmd.batch [ driverCmd; Cmd.ofMsg (TimerMsg Timer.Start) ]
 
@@ -140,41 +140,6 @@ let update msg model =
     let m, cmd = Avatar.update Avatar.NextMood model.Avatar
     { model with Avatar = m }, Cmd.batch [ Cmd.map AvatarMsg cmd; Cmd.ofMsg (SetUserMood m.CurrentUser.Mood) ]
 
-  | AvatarMsg Avatar.BecomeDriver ->
-    let users = model.Avatar.Users
-
-    let nextDriver =
-      match users with
-      | [] -> None
-      | _ ->
-        match model.Avatar.ActiveDriver with
-        | None -> users |> List.tryHead
-        | Some current ->
-          let idx = users |> List.tryFindIndex (fun u -> u.Name = current.Name)
-
-          match idx with
-          | None -> users |> List.tryHead
-          | Some i -> Some users.[(i + 1) % users.Length]
-
-    let nextDriverName = nextDriver |> Option.map (fun u -> u.Name)
-    let connectedNames = users |> List.map (fun u -> u.Name)
-    let avatarMap = users |> List.map (fun u -> u.Name, u.Creature) |> Map.ofList
-
-    let driverCmd =
-      match nextDriverName with
-      | None -> Cmd.ofMsg (SetActiveDriver "")
-      | Some u -> Cmd.ofMsg (SetActiveDriver u)
-
-    {
-      model with
-          Avatar = {
-            model.Avatar with
-                ActiveDriver = nextDriver
-          }
-          Timer = Timer.resetForDriver nextDriverName connectedNames avatarMap
-    },
-    Cmd.batch [ driverCmd; Cmd.ofMsg (TimerMsg Timer.Start) ]
-
   | AvatarMsg aMsg ->
     let m, cmd = Avatar.update aMsg model.Avatar
     { model with Avatar = m }, Cmd.map AvatarMsg cmd
@@ -184,7 +149,11 @@ let update msg model =
   | WidgetStateLoaded(Some state) ->
     let notes = {
       model.Notes with
-          FreetextContent = state.NotesFreetextContent
+          FreetextContent =
+            if isNull state.NotesFreetextContent then
+              ""
+            else
+              state.NotesFreetextContent
           ListItems =
             if isNull state.NotesListItems then
               []
@@ -202,10 +171,10 @@ let update msg model =
     }
 
     let timerCmd =
-      if state.TimerIsRunning then
-        Cmd.ofMsg (TimerMsg Timer.Start)
-      else
-        Cmd.none
+      match state.TimerIsRunning, model.Timer.State with
+      | true, (Timer.Idle | Timer.Paused) -> Cmd.ofMsg (TimerMsg Timer.Start)
+      | false, Timer.Running -> Cmd.ofMsg (TimerMsg Timer.Pause)
+      | _ -> Cmd.none
 
     {
       model with
@@ -227,32 +196,6 @@ let update msg model =
     },
     []
   | StateSaved -> model, []
-
-let applyWidgetState (state: Session.WidgetState) (model: Model) =
-  let notes = {
-    model.Notes with
-        FreetextContent = state.NotesFreetextContent
-        ListItems =
-          if isNull state.NotesListItems then
-            []
-          else
-            state.NotesListItems.Values |> Seq.toList
-        NoteMode =
-          match state.NotesNoteMode with
-          | "List" -> Notes.List
-          | _ -> Notes.Freetext
-  }
-
-  let timer = {
-    model.Timer with
-        Remaining = TimeSpan.FromSeconds(float state.TimerRemainingSeconds)
-  }
-
-  {
-    model with
-        Notes = notes
-        Timer = timer
-  }
 
 let shouldPersist (msg: Msg) (_model: Model) =
   match msg with
@@ -324,13 +267,18 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
       match model.Focus with
       | 1 -> Notes.handleKey key model.Notes |> Option.map NotesMsg
       | 2 -> TodoList.handleKey key model.TodoList |> Option.map TodoListMsg
-      | 3 -> Timer.handleKey key model.Timer |> Option.map TimerMsg
       | 4 -> SessionInfo.handleKey key model.SessionInfo |> Option.map SessionInfoMsg
       | 5 -> Avatar.handleKey key model.Avatar |> Option.map AvatarMsg
       | _ -> None)
 
 let keyMap (model: Model) : Spectre.Tui.App.IKeyMap =
   KeyBinding.toKeyMap outerBindings model
+
+let private emptyKeyMap: IKeyMap =
+  { new IKeyMap with
+      member _.Help() =
+        Seq.empty
+  }
 
 let private panelInnerLayout =
   layout "panel-inner"
@@ -421,7 +369,7 @@ let widget (model: Model) : IWidget =
                     "Timer"
                     3
                     (focusStateFor 3)
-                    (withPanelKeys (Timer.widget model.Timer) (Timer.keyMap model.Timer) (model.Focus = 3)),
+                    (withPanelKeys (Timer.widget model.Timer) emptyKeyMap (model.Focus = 3)),
                   workPort "timer"
                 )
 
