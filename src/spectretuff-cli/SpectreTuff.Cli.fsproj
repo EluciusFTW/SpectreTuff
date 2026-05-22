@@ -20,6 +20,7 @@
     <Compile Include="Counter.fs" />
     <Compile Include="Log.fs" />
     <Compile Include="Timer.fs" />
+    <Compile Include="AvatarDemo.fs" />
     <Compile Include="Application.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
