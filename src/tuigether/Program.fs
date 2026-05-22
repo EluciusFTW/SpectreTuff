@@ -15,9 +15,11 @@ let renderer = Spectre.Tui.Renderer terminal
 renderer.NoTargetFps ()
 
 Elmish.Program.mkProgram Application.init (Application.update client) (Application.view renderer)
-|> Input.withKeyListener Application.InputMsg
-|> Firebase.withFirebaseSubscription client Application.FirebaseMsg
+|> Elmish.Program.withSubscription (fun model ->
+    Firebase.subscription client Application.FirebaseMsg model @
+    Input.subscription Application.InputMsg model)
 |> Elmish.Program.withTrace Application.traceToLog
 |> Elmish.Program.run
 
 Application.exitEvent.Wait()
+Console.Clear()
