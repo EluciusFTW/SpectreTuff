@@ -97,8 +97,13 @@ let joinSession
   : Async<Result<unit, string>> =
   async {
     try
+      let presence = {
+        Session.UserPresence.Avatar = avatarName
+        Session.UserPresence.Mood = "Neutral"
+      }
+
       do!
-        client.Child(sessionsPath).Child(sessionId).Child("connectedUsers").Child(user).PutAsync(avatarName :> obj)
+        client.Child(sessionsPath).Child(sessionId).Child("connectedUsers").Child(user).PutAsync(presence :> obj)
         |> Async.AwaitTask
 
       return Ok()
@@ -132,7 +137,21 @@ let clearActiveDriver (client: FirebaseClient) sessionId =
       |> Async.AwaitTask
   }
 
+let setUserMood (client: FirebaseClient) sessionId user (moodName: string) =
+  async {
+    do!
+      client
+        .Child(sessionsPath)
+        .Child(sessionId)
+        .Child("connectedUsers")
+        .Child(user)
+        .Child("Mood")
+        .PutAsync(moodName :> obj)
+      |> Async.AwaitTask
+  }
+
 let private subscribe (client: FirebaseClient) (dispatch: Msg -> unit) : IDisposable =
+  // Initial snapshot — silently ignored if connection races; streaming catches up
   async {
     try
       let! sessions = client.Child(sessionsPath).OnceAsync<Session.Data>() |> Async.AwaitTask
@@ -142,8 +161,8 @@ let private subscribe (client: FirebaseClient) (dispatch: Msg -> unit) : IDispos
       |> Seq.toList
       |> SessionsLoaded
       |> dispatch
-    with e ->
-      dispatch (ConnectionError(sprintf "initial read failed: %s" e.Message))
+    with _ ->
+      ()
   }
   |> Async.Start
 
@@ -156,10 +175,10 @@ let private subscribe (client: FirebaseClient) (dispatch: Msg -> unit) : IDispos
         | _ -> dispatch (SessionChanged(ev.Key, ev.Object))
       | _ -> ()
     with e ->
-      dispatch (ConnectionError e.Message)
+      dispatch (ConnectionError(sprintf "[%s] %s" (e.GetType().Name) e.Message))
 
   let onError (e: exn) =
-    dispatch (ConnectionError e.Message)
+    dispatch (ConnectionError(sprintf "[%s] %s" (e.GetType().Name) e.Message))
 
   client
     .Child(sessionsPath)

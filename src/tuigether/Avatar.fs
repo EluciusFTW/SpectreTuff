@@ -22,13 +22,28 @@ let resolveCreature () =
 let resolveName () =
   (resolveCreature ()).Name
 
-type Model = {
-  ConnectedUsers: string list
-  UserAvatars: Map<string, Creature>
-  ActiveDriver: string option
-  CurrentUser: string
-  MyCreature: Creature
+let moodToString (mood: Mood) =
+  match mood with
+  | Happy -> "Happy"
+  | Neutral -> "Neutral"
+  | Sad -> "Sad"
+
+let private moodFromString (s: string) =
+  match s with
+  | "Happy" -> Happy
+  | "Sad" -> Sad
+  | _ -> Neutral
+
+type User = {
+  Name: string
+  Creature: Creature
   Mood: Mood
+}
+
+type Model = {
+  Users: User list
+  ActiveDriver: User option
+  CurrentUser: User
 }
 
 type Msg =
@@ -36,69 +51,98 @@ type Msg =
   | BecomeDriver
   | UpdateSession of Session.Data
 
-let private buildUserAvatars (data: Session.Data) (currentUser: string) (myCreature: Creature) =
-  let base' =
-    if isNull data.ConnectedUsers then
-      Map.empty
-    else
-      data.ConnectedUsers
-      |> Seq.map (fun kv -> kv.Key, creatureByName kv.Value)
-      |> Map.ofSeq
-
-  base' |> Map.add currentUser myCreature
+let private buildUsers (data: Session.Data) (currentUser: string) (myCreature: Creature) (myMood: Mood) =
+  if isNull data.ConnectedUsers then
+    [
+      {
+        Name = currentUser
+        Creature = myCreature
+        Mood = myMood
+      }
+    ]
+  else
+    data.ConnectedUsers
+    |> Seq.map (fun kv ->
+      match kv.Key = currentUser with
+      | true -> {
+          Name = kv.Key
+          Creature = myCreature
+          Mood = myMood
+        }
+      | false -> {
+          Name = kv.Key
+          Creature = creatureByName kv.Value.Avatar
+          Mood = moodFromString kv.Value.Mood
+        })
+    |> Seq.toList
 
 let init (currentUser: string) (data: Session.Data) =
   let myCreature = resolveCreature ()
+  let myMood = Neutral
+  let users = buildUsers data currentUser myCreature myMood
+
+  let me =
+    users
+    |> List.tryFind (fun u -> u.Name = currentUser)
+    |> Option.defaultValue {
+      Name = currentUser
+      Creature = myCreature
+      Mood = myMood
+    }
 
   {
-    ConnectedUsers =
-      if isNull data.ConnectedUsers then
-        []
-      else
-        data.ConnectedUsers.Keys |> Seq.toList
-    UserAvatars = buildUserAvatars data currentUser myCreature
+    Users = users
     ActiveDriver =
-      if String.IsNullOrWhiteSpace(data.ActiveDriver) then
-        None
-      else
-        Some data.ActiveDriver
-    CurrentUser = currentUser
-    MyCreature = myCreature
-    Mood = Neutral
+      match String.IsNullOrWhiteSpace(data.ActiveDriver) with
+      | true -> None
+      | false -> users |> List.tryFind (fun u -> u.Name = data.ActiveDriver)
+    CurrentUser = me
   }
 
 let update msg model =
   match msg with
   | NextMood ->
-    match model.ActiveDriver with
-    | Some driver when driver = model.CurrentUser ->
-      let next =
-        match model.Mood with
-        | Happy -> Neutral
-        | Neutral -> Sad
-        | Sad -> Happy
+    let next =
+      match model.CurrentUser.Mood with
+      | Happy -> Neutral
+      | Neutral -> Sad
+      | Sad -> Happy
 
-      { model with Mood = next }, []
-    | _ -> model, []
+    let updated = { model.CurrentUser with Mood = next }
+
+    {
+      model with
+          CurrentUser = updated
+          Users =
+            model.Users
+            |> List.map (fun u ->
+              match u.Name = updated.Name with
+              | true -> updated
+              | false -> u)
+          ActiveDriver =
+            match model.ActiveDriver with
+            | Some d when d.Name = updated.Name -> Some updated
+            | other -> other
+    },
+    []
 
   | BecomeDriver -> model, []
 
   | UpdateSession data ->
-    let userAvatars = buildUserAvatars data model.CurrentUser model.MyCreature
+    let users = buildUsers data model.CurrentUser.Name model.CurrentUser.Creature model.CurrentUser.Mood
+
+    let me =
+      users
+      |> List.tryFind (fun u -> u.Name = model.CurrentUser.Name)
+      |> Option.defaultValue model.CurrentUser
 
     {
-      model with
-          ConnectedUsers =
-            if isNull data.ConnectedUsers then
-              []
-            else
-              data.ConnectedUsers.Keys |> Seq.toList
-          UserAvatars = userAvatars
-          ActiveDriver =
-            if String.IsNullOrWhiteSpace(data.ActiveDriver) then
-              None
-            else
-              Some data.ActiveDriver
+      Users = users
+      CurrentUser = me
+      ActiveDriver =
+        match String.IsNullOrWhiteSpace(data.ActiveDriver) with
+        | true -> None
+        | false -> users |> List.tryFind (fun u -> u.Name = data.ActiveDriver)
     },
     []
 
@@ -117,71 +161,45 @@ let private driverLayout =
   layout "av-root"
   |> splitHorizontally [| layout "driver-area" |> withRatio 3; layout "others-area" |> withRatio 2 |]
 
+let private driverNameLayout =
+  layout "driver-with-name"
+  |> splitHorizontally [| layout "big-av"; layout "driver-lbl" |> withFixedSize (Some 1) |]
+
 let widget (model: Model) : IWidget =
   { new IWidget with
       member _.Render(context: RenderContext) =
-        let getCreature user =
-          model.UserAvatars |> Map.tryFind user |> Option.defaultValue library.[0]
-
         let renderCell cell =
           match cell with
           | Empty -> Text.span "  "
           | Filled color -> Text.styledSpan (System.Nullable(Style color)) "██"
 
+        let renderSmall (user: User) =
+          let avatarLines =
+            user.Creature.SmallRows
+            |> List.map (fun row -> row |> List.map renderCell |> Text.line)
+
+          let nameLine = Text.line [ Text.span user.Name ]
+          avatarLines @ [ nameLine ]
+
         match model.ActiveDriver with
         | None ->
-          let lines =
-            model.ConnectedUsers
-            |> List.collect (fun user ->
-              let label =
-                if user = model.CurrentUser then
-                  $"▶ {user}"
-                else
-                  $"  {user}"
-
-              let creature = getCreature user
-              let labelLine = Text.line [ Text.span label ]
-
-              let avatarLines =
-                creature.SmallRows
-                |> List.map (fun row -> row |> List.map renderCell |> Text.line)
-
-              labelLine :: avatarLines)
-
-          context.Render(paragraph lines, context.Viewport)
+          let lines = model.Users |> List.collect renderSmall
+          context.Render(paragraph lines |> withHorizontalAlignment Justify.Center, context.Viewport)
 
         | Some driverUser ->
           let port = getPort context.Viewport driverLayout
+          let driverPort = getPort (port "driver-area") driverNameLayout
 
-          let driverCreature = getCreature driverUser
+          context.Render(avatar driverUser.Mood driverUser.Creature :> IWidget, driverPort "big-av")
 
-          let driverMood =
-            if driverUser = model.CurrentUser then
-              model.Mood
-            else
-              Neutral
+          context.Render(
+            paragraph [ Text.line [ Text.span driverUser.Name ] ]
+            |> withHorizontalAlignment Justify.Center,
+            driverPort "driver-lbl"
+          )
 
-          context.Render(avatar driverMood driverCreature :> IWidget, port "driver-area")
+          let others = model.Users |> List.filter (fun u -> u.Name <> driverUser.Name)
+          let otherLines = others |> List.collect renderSmall
 
-          let others = model.ConnectedUsers |> List.filter (fun u -> u <> driverUser)
-
-          let lines =
-            others
-            |> List.collect (fun user ->
-              let label =
-                if user = model.CurrentUser then
-                  $"▶ {user}"
-                else
-                  $"  {user}"
-
-              let creature = getCreature user
-              let labelLine = Text.line [ Text.span label ]
-
-              let avatarLines =
-                creature.SmallRows
-                |> List.map (fun row -> row |> List.map renderCell |> Text.line)
-
-              labelLine :: avatarLines)
-
-          context.Render(paragraph lines, port "others-area")
+          context.Render(paragraph otherLines |> withHorizontalAlignment Justify.Center, port "others-area")
   }

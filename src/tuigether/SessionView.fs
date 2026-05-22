@@ -32,6 +32,7 @@ type Msg =
   | AvatarMsg of Avatar.Msg
   | UpdateSession of Session.Data
   | SetActiveDriver of string
+  | SetUserMood of Mood
 
 let init (user: string) (sessionId: string) (sessionData: Session.Data) = {
   SessionId = sessionId
@@ -51,7 +52,7 @@ let update msg model =
   | GoBack ->
     let clearCmd =
       match model.Avatar.ActiveDriver with
-      | Some u when u = model.User -> Cmd.ofMsg (SetActiveDriver "")
+      | Some driver when driver.Name = model.User -> Cmd.ofMsg (SetActiveDriver "")
       | _ -> Cmd.none
 
     model, clearCmd
@@ -93,8 +94,12 @@ let update msg model =
           SessionData = data
     },
     Cmd.map AvatarMsg cmd
+  | AvatarMsg Avatar.NextMood ->
+    let m, cmd = Avatar.update Avatar.NextMood model.Avatar
+    { model with Avatar = m }, Cmd.batch [ Cmd.map AvatarMsg cmd; Cmd.ofMsg (SetUserMood m.CurrentUser.Mood) ]
+
   | AvatarMsg Avatar.BecomeDriver ->
-    let users = model.Avatar.ConnectedUsers
+    let users = model.Avatar.Users
 
     let nextDriver =
       match users with
@@ -103,7 +108,7 @@ let update msg model =
         match model.Avatar.ActiveDriver with
         | None -> users |> List.tryHead
         | Some current ->
-          let idx = users |> List.tryFindIndex (fun u -> u = current)
+          let idx = users |> List.tryFindIndex (fun u -> u.Name = current.Name)
 
           match idx with
           | None -> users |> List.tryHead
@@ -112,7 +117,7 @@ let update msg model =
     let driverCmd =
       match nextDriver with
       | None -> Cmd.ofMsg (SetActiveDriver "")
-      | Some u -> Cmd.ofMsg (SetActiveDriver u)
+      | Some u -> Cmd.ofMsg (SetActiveDriver u.Name)
 
     {
       model with
@@ -122,10 +127,13 @@ let update msg model =
           }
     },
     driverCmd
+
   | AvatarMsg aMsg ->
     let m, cmd = Avatar.update aMsg model.Avatar
     { model with Avatar = m }, Cmd.map AvatarMsg cmd
+
   | SetActiveDriver _ -> model, []
+  | SetUserMood _ -> model, []
 
 let private outerBindings: KeyBinding<Model, Msg> list = [
   KeyBinding.dynamic (SpecialKey ConsoleKey.Backspace) (fun _ -> {

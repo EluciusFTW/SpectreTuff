@@ -28,6 +28,7 @@ type Msg =
   | SessionViewMsg of SessionView.Msg
   | JoinCompleted of Result<unit, string>
   | SetActiveDriverCompleted of Result<unit, string>
+  | SetUserMoodCompleted of Result<unit, string>
   | LeaveCompleted of Result<unit, string>
   | CreateCompleted of Result<string, string>
   | DeleteCompleted of Result<unit, string>
@@ -229,6 +230,21 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
     |> Option.defaultValue (model, [])
 
   | SetActiveDriverCompleted _ -> model, []
+
+  | SessionViewMsg(SessionView.SetUserMood mood) ->
+    match model.Page with
+    | SessionViewPage vm ->
+      let moodName = Avatar.moodToString mood
+
+      let cmd =
+        Cmd.OfAsync.attempt (fun () -> Firebase.setUserMood client vm.SessionId model.User moodName) () (fun _ ->
+          SetUserMoodCompleted(Ok()))
+
+      Some(model, cmd)
+    | _ -> None
+    |> Option.defaultValue (model, [])
+
+  | SetUserMoodCompleted _ -> model, []
 
   | JoinCompleted result ->
     match model.Page with
