@@ -24,5 +24,6 @@
     <Compile Include="Widgets/Help.fs" />
     <Compile Include="Widgets/Spinner.fs" />
     <Compile Include="Widgets/ProgressBar.fs" />
+    <Compile Include="Widgets/Avatar.fs" />
   </ItemGroup>
 </Project>
