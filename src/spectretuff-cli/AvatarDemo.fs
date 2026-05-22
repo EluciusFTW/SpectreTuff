@@ -7,15 +7,17 @@ open Keymap
 open SpectreTuff.Layout
 open SpectreTuff.Widgets
 
-type Model = { Index: int }
+type Model = { Index: int; Mood: Mood }
 
 type Msg =
   | Up
   | Down
+  | NextMood
 
 let private bindings: KeyBinding<Model, Msg> list = [
   KeyBinding.createSpecial ConsoleKey.UpArrow "up" Up
   KeyBinding.createSpecial ConsoleKey.DownArrow "down" Down
+  KeyBinding.create 'm' "mood" NextMood
 ]
 
 let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
@@ -37,6 +39,14 @@ let update msg model =
           Index = (model.Index + 1) % count
     },
     []
+  | NextMood ->
+    let next =
+      match model.Mood with
+      | Happy -> Neutral
+      | Neutral -> Sad
+      | Sad -> Happy
+
+    { model with Mood = next }, []
 
 let keyMap model =
   KeyBinding.toKeyMap bindings model
@@ -59,7 +69,7 @@ let widget (model: Model) =
           :> IWidget
 
         context.Render(listWidget, port "list")
-        context.Render(avatarByIndex model.Index, port "preview")
+        context.Render(avatarByIndex model.Mood model.Index, port "preview")
   }
 
-let init () = { Index = 0 }
+let init () = { Index = 0; Mood = Neutral }
