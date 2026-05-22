@@ -3,6 +3,7 @@ module SessionView
 open System
 open Elmish
 open Spectre.Tui
+open Spectre.Tui.App
 open Keymap
 open SpectreTuff.Layout
 open SpectreTuff.Widgets
@@ -103,33 +104,40 @@ let private tryFocusNumber (key: ConsoleKeyInfo) =
     if n <= panelCount then Some(FocusPanel n) else None
   | _ -> None
 
+let capturesInput (model: Model) =
+  model.Focus = 1 && Notes.capturesInput model.Notes
+
 let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
-  tryFocusNumber key
-  |> Option.orElseWith (fun () -> KeyBinding.handleKey outerBindings key model)
-  |> Option.orElseWith (fun () ->
-    match model.Focus with
-    | 1 -> Notes.handleKey key model.Notes |> Option.map NotesMsg
-    | 2 -> TodoList.handleKey key model.TodoList |> Option.map TodoListMsg
-    | 3 -> Timer.handleKey key model.Timer |> Option.map TimerMsg
-    | 4 -> SessionInfo.handleKey key model.SessionInfo |> Option.map SessionInfoMsg
-    | 5 -> Avatar.handleKey key model.Avatar |> Option.map AvatarMsg
-    | _ -> None)
+  match capturesInput model with
+  | true -> Notes.handleKey key model.Notes |> Option.map NotesMsg
+  | false ->
+    tryFocusNumber key
+    |> Option.orElseWith (fun () -> KeyBinding.handleKey outerBindings key model)
+    |> Option.orElseWith (fun () ->
+      match model.Focus with
+      | 1 -> Notes.handleKey key model.Notes |> Option.map NotesMsg
+      | 2 -> TodoList.handleKey key model.TodoList |> Option.map TodoListMsg
+      | 3 -> Timer.handleKey key model.Timer |> Option.map TimerMsg
+      | 4 -> SessionInfo.handleKey key model.SessionInfo |> Option.map SessionInfoMsg
+      | 5 -> Avatar.handleKey key model.Avatar |> Option.map AvatarMsg
+      | _ -> None)
 
 let keyMap (model: Model) : Spectre.Tui.App.IKeyMap =
-  let focusedKeyMap =
-    match model.Focus with
-    | 1 -> Notes.keyMap model.Notes
-    | 2 -> TodoList.keyMap model.TodoList
-    | 3 -> Timer.keyMap model.Timer
-    | 4 -> SessionInfo.keyMap model.SessionInfo
-    | 5 -> Avatar.keyMap model.Avatar
-    | _ -> KeyBinding.toKeyMap [] model
+  KeyBinding.toKeyMap outerBindings model
 
-  let outerKeyMap = KeyBinding.toKeyMap outerBindings model
+let private panelInnerLayout =
+  layout "panel-inner"
+  |> splitHorizontally [| layout "content"; layout "keys" |> withFixedSize (Some 1) |]
 
-  { new Spectre.Tui.App.IKeyMap with
-      member _.Help() =
-        Seq.append (outerKeyMap.Help()) (focusedKeyMap.Help())
+let private withPanelKeys (panelWidget: IWidget) (panelKeyMap: IKeyMap) (focused: bool) : IWidget =
+  { new IWidget with
+      member _.Render(ctx) =
+        let port = getPort ctx.Viewport panelInnerLayout
+        ctx.Render(panelWidget, port "content")
+
+        match focused with
+        | true -> ctx.Render(help [ panelKeyMap ] |> leftAligned, port "keys")
+        | false -> ()
   }
 
 let private topRowLayout =
@@ -158,9 +166,43 @@ let widget (model: Model) : IWidget =
         ctx.Render(
           { new IWidget with
               member _.Render(ctx) =
-                ctx.Render(focusableBox "Notes" 1 (model.Focus = 1) (Notes.widget model.Notes), topPort "notes")
-                ctx.Render(focusableBox "Todo" 2 (model.Focus = 2) (TodoList.widget model.TodoList), topPort "todo")
-                ctx.Render(focusableBox "Timer" 3 (model.Focus = 3) (Timer.widget model.Timer), topPort "timer")
+                let notesFocusState =
+                  match model.Focus, Notes.capturesInput model.Notes with
+                  | 1, true -> Capturing
+                  | 1, false -> Focused
+                  | _ -> Unfocused
+
+                let focusStateFor n =
+                  match model.Focus = n with
+                  | true -> Focused
+                  | false -> Unfocused
+
+                ctx.Render(
+                  focusableBox
+                    "Notes"
+                    1
+                    notesFocusState
+                    (withPanelKeys (Notes.widget model.Notes) (Notes.keyMap model.Notes) (model.Focus = 1)),
+                  topPort "notes"
+                )
+
+                ctx.Render(
+                  focusableBox
+                    "Todo"
+                    2
+                    (focusStateFor 2)
+                    (withPanelKeys (TodoList.widget model.TodoList) (TodoList.keyMap model.TodoList) (model.Focus = 2)),
+                  topPort "todo"
+                )
+
+                ctx.Render(
+                  focusableBox
+                    "Timer"
+                    3
+                    (focusStateFor 3)
+                    (withPanelKeys (Timer.widget model.Timer) (Timer.keyMap model.Timer) (model.Focus = 3)),
+                  topPort "timer"
+                )
           },
           slotPort "top"
         )
@@ -168,12 +210,31 @@ let widget (model: Model) : IWidget =
         ctx.Render(
           { new IWidget with
               member _.Render(ctx) =
+                let focusStateFor n =
+                  match model.Focus = n with
+                  | true -> Focused
+                  | false -> Unfocused
+
                 ctx.Render(
-                  focusableBox "Session Info" 4 (model.Focus = 4) (SessionInfo.widget model.SessionInfo),
+                  focusableBox
+                    "Session Info"
+                    4
+                    (focusStateFor 4)
+                    (withPanelKeys
+                      (SessionInfo.widget model.SessionInfo)
+                      (SessionInfo.keyMap model.SessionInfo)
+                      (model.Focus = 4)),
                   bottomPort "info"
                 )
 
-                ctx.Render(focusableBox "Users" 5 (model.Focus = 5) (Avatar.widget model.Avatar), bottomPort "avatar")
+                ctx.Render(
+                  focusableBox
+                    "Users"
+                    5
+                    (focusStateFor 5)
+                    (withPanelKeys (Avatar.widget model.Avatar) (Avatar.keyMap model.Avatar) (model.Focus = 5)),
+                  bottomPort "avatar"
+                )
           },
           slotPort "bottom"
         )

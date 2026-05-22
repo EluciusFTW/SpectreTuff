@@ -21,6 +21,7 @@
     <Compile Include="Log.fs" />
     <Compile Include="Timer.fs" />
     <Compile Include="AvatarDemo.fs" />
+    <Compile Include="Notes.fs" />
     <Compile Include="Application.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

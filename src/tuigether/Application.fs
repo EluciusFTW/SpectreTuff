@@ -38,6 +38,7 @@ type Panel = {
   LayoutSlot: string
   Focused: bool
   Boxed: bool
+  CapturesInput: bool
   Widget: IWidget
   KeyMap: IKeyMap
   HandleKey: ConsoleKeyInfo -> Msg option
@@ -83,6 +84,7 @@ let private buildPanels (model: Model) : Panel list =
         LayoutSlot = "content"
         Focused = model.Focus = 1
         Boxed = true
+        CapturesInput = false
         Widget = SessionList.widget model.SessionList
         KeyMap = SessionList.keyMap model.SessionList
         HandleKey = fun key -> SessionList.handleKey key model.SessionList |> Option.map SessionListMsg
@@ -96,6 +98,7 @@ let private buildPanels (model: Model) : Panel list =
         LayoutSlot = "content"
         Focused = model.Focus = 1
         Boxed = false
+        CapturesInput = SessionView.capturesInput viewModel
         Widget = SessionView.widget viewModel
         KeyMap = SessionView.keyMap viewModel
         HandleKey = fun key -> SessionView.handleKey key viewModel |> Option.map SessionViewMsg
@@ -128,15 +131,25 @@ let init (user: string) () =
 let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
   match msg with
   | InputMsg(Input.KeyPressed key) ->
-    match key.Key with
-    | ConsoleKey.Q -> model, Cmd.ofMsg Exit
-    | ConsoleKey.L -> model, Cmd.ofMsg ToggleLog
-    | _ ->
-      buildPanels model
-      |> List.tryFind (fun p -> p.Number = model.Focus)
+    let panels = buildPanels model
+    let focusedPanel = panels |> List.tryFind (fun p -> p.Number = model.Focus)
+    let capturing = focusedPanel |> Option.exists (_.CapturesInput)
+
+    match capturing with
+    | true ->
+      focusedPanel
       |> Option.bind (fun p -> p.HandleKey key)
       |> Option.map (fun msg -> model, Cmd.ofMsg msg)
       |> Option.defaultValue (model, [])
+    | false ->
+      match key.Key with
+      | ConsoleKey.Q -> model, Cmd.ofMsg Exit
+      | ConsoleKey.L -> model, Cmd.ofMsg ToggleLog
+      | _ ->
+        focusedPanel
+        |> Option.bind (fun p -> p.HandleKey key)
+        |> Option.map (fun msg -> model, Cmd.ofMsg msg)
+        |> Option.defaultValue (model, [])
 
   | FirebaseMsg(Firebase.SessionsLoaded sessions) ->
     model, Cmd.ofMsg (SessionListMsg(SessionList.SessionsLoaded sessions))
@@ -213,7 +226,14 @@ type AppView(model: Model) =
 
         let renderedPanel: IWidget =
           match panel.Boxed with
-          | true -> focusableBox panel.Title panel.Number panel.Focused composedWidget :> IWidget
+          | true ->
+            let focusState =
+              match panel.CapturesInput, panel.Focused with
+              | true, _ -> Capturing
+              | _, true -> Focused
+              | _ -> Unfocused
+
+            focusableBox panel.Title panel.Number focusState composedWidget :> IWidget
           | false -> composedWidget
 
         ctx.Render(renderedPanel, slotPort panel.LayoutSlot)

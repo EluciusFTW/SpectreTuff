@@ -12,6 +12,7 @@ type Model = {
   ListModel: ListWidget.Model
   TimerModel: Timer.Model
   AvatarModel: AvatarDemo.Model
+  NotesModel: Notes.Model
   ExitEvent: Threading.ManualResetEventSlim
   LogModel: Log.Model
   Focus: int
@@ -24,6 +25,7 @@ type Msg =
   | ListMsg of ListWidget.Msg
   | TimerMsg of Timer.Msg
   | AvatarMsg of AvatarDemo.Msg
+  | NotesMsg of Notes.Msg
   | ToggleLog
   | Exit
 
@@ -32,6 +34,7 @@ type Panel = {
   Title: string
   LayoutSlot: string
   Focused: bool
+  CapturesInput: bool
   Widget: IWidget
   KeyMap: IKeyMap
   HandleKey: ConsoleKeyInfo -> Msg option
@@ -49,7 +52,13 @@ let private mainLayout (model: Model) =
   |> splitHorizontally [|
     layout "top"
     |> withRatio 3
-    |> splitVertically [| layout "left"; layout "center"; layout "right"; layout "avatar" |]
+    |> splitVertically [|
+      layout "left"
+      layout "center"
+      layout "right"
+      layout "avatar"
+      layout "notes"
+    |]
     layout "log" |> withRatio 1 |> (if model.LogVisible then show else hide)
     layout "help" |> withFixedSize (Some 1)
   |]
@@ -73,6 +82,7 @@ let private buildPanels (model: Model) =
       Title = "List"
       LayoutSlot = "left"
       Focused = focused 1
+      CapturesInput = false
       Widget = ListWidget.widget model.ListModel
       KeyMap = ListWidget.keyMap model.ListModel
       HandleKey = fun key -> ListWidget.handleKey key model.ListModel |> Option.map ListMsg
@@ -89,6 +99,7 @@ let private buildPanels (model: Model) =
       Title = "Counter"
       LayoutSlot = "right"
       Focused = focused 2
+      CapturesInput = false
       Widget = Counter.widget model.CounterModel
       KeyMap = Counter.keyMap model.CounterModel
       HandleKey = fun key -> Counter.handleKey key model.CounterModel |> Option.map CounterMsg
@@ -105,6 +116,7 @@ let private buildPanels (model: Model) =
       Title = "Timer"
       LayoutSlot = "center"
       Focused = focused 3
+      CapturesInput = false
       Widget = Timer.widget model.TimerModel
       KeyMap = Timer.keyMap model.TimerModel
       HandleKey = fun key -> Timer.handleKey key model.TimerModel |> Option.map TimerMsg
@@ -121,6 +133,7 @@ let private buildPanels (model: Model) =
       Title = "Avatar"
       LayoutSlot = "avatar"
       Focused = focused 4
+      CapturesInput = false
       Widget = AvatarDemo.widget model.AvatarModel
       KeyMap = AvatarDemo.keyMap model.AvatarModel
       HandleKey = fun key -> AvatarDemo.handleKey key model.AvatarModel |> Option.map AvatarMsg
@@ -130,6 +143,23 @@ let private buildPanels (model: Model) =
           | AvatarMsg aMsg ->
             let m, cmd = AvatarDemo.update aMsg model.AvatarModel
             Some({ model with AvatarModel = m }, cmd)
+          | _ -> None
+    }
+    {
+      Number = 5
+      Title = "Notes"
+      LayoutSlot = "notes"
+      Focused = focused 5
+      CapturesInput = Notes.capturesInput model.NotesModel
+      Widget = Notes.widget model.NotesModel
+      KeyMap = Notes.keyMap model.NotesModel
+      HandleKey = fun key -> Notes.handleKey key model.NotesModel |> Option.map NotesMsg
+      Update =
+        fun msg model ->
+          match msg with
+          | NotesMsg nMsg ->
+            let m, cmd = Notes.update nMsg model.NotesModel
+            Some({ model with NotesModel = m }, cmd)
           | _ -> None
     }
   ]
@@ -153,7 +183,13 @@ type Application(model: Model) =
                   ctx.Render(help [ panel.KeyMap ] |> leftAligned, port "keys")
           }
 
-        context.Render(focusableBox panel.Title panel.Number panel.Focused composedWidget, slotPort panel.LayoutSlot)
+        let focusState =
+          match panel.CapturesInput, panel.Focused with
+          | true, _ -> Capturing
+          | _, true -> Focused
+          | _ -> Unfocused
+
+        context.Render(focusableBox panel.Title panel.Number focusState composedWidget, slotPort panel.LayoutSlot)
 
       if model.LogVisible then
         Log.view model.LogModel context (slotPort "log")
@@ -175,6 +211,7 @@ let init () =
     }
     TimerModel = Timer.init ()
     AvatarModel = AvatarDemo.init ()
+    NotesModel = Notes.init ()
     ExitEvent = exitEvent
     LogModel = Log.init ()
     Focus = 1
@@ -195,18 +232,27 @@ let update msg (model: Model) =
   | InputMsg inputMsg ->
     match inputMsg with
     | Input.KeyPressed key ->
-      match key.Key with
-      | ConsoleKey.Q -> model, Cmd.ofMsg Exit
-      | ConsoleKey.L -> model, Cmd.ofMsg ToggleLog
-      | _ ->
-        match tryFocusNumber key with
-        | Some number when panels |> List.exists (fun p -> p.Number = number) -> { model with Focus = number }, []
+      let focusedPanel = panels |> List.tryFind (fun p -> p.Number = model.Focus)
+      let capturing = focusedPanel |> Option.exists (_.CapturesInput)
+
+      match capturing with
+      | true ->
+        focusedPanel
+        |> Option.bind (fun p -> p.HandleKey key)
+        |> Option.map (fun msg -> model, Cmd.ofMsg msg)
+        |> Option.defaultValue (model, Cmd.none)
+      | false ->
+        match key.Key with
+        | ConsoleKey.Q -> model, Cmd.ofMsg Exit
+        | ConsoleKey.L -> model, Cmd.ofMsg ToggleLog
         | _ ->
-          panels
-          |> List.tryFind (fun p -> p.Number = model.Focus)
-          |> Option.bind (fun p -> p.HandleKey key)
-          |> Option.map (fun msg -> model, Cmd.ofMsg msg)
-          |> Option.defaultValue (model, Cmd.none)
+          match tryFocusNumber key with
+          | Some number when panels |> List.exists (fun p -> p.Number = number) -> { model with Focus = number }, []
+          | _ ->
+            focusedPanel
+            |> Option.bind (fun p -> p.HandleKey key)
+            |> Option.map (fun msg -> model, Cmd.ofMsg msg)
+            |> Option.defaultValue (model, Cmd.none)
   | ToggleLog ->
     {
       model with

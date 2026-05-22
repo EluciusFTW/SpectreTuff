@@ -133,7 +133,7 @@ let init () = {
   NoteMode = Freetext
   InputMode = Normal
   FreetextContent = ""
-  ListItems = []
+  ListItems = [ "First note"; "Second note" ]
   ListIndex = 0
 }
 
