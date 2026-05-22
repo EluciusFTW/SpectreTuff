@@ -92,26 +92,28 @@ let private outerBindings: KeyBinding<Model, Msg> list = [
     Description = "next panel"
     Message = Some(FocusPanel(model.Focus % 5 + 1))
   })
-  KeyBinding.create '1' "notes" (FocusPanel 1)
-  KeyBinding.create '2' "todo" (FocusPanel 2)
-  KeyBinding.create '3' "timer" (FocusPanel 3)
-  KeyBinding.create '4' "info" (FocusPanel 4)
-  KeyBinding.create '5' "users" (FocusPanel 5)
 ]
 
-let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
-  let outerResult = KeyBinding.handleKey outerBindings key model
+let private panelCount = 5
 
-  match outerResult with
-  | Some _ -> outerResult
-  | None ->
+let private tryFocusNumber (key: ConsoleKeyInfo) =
+  if key.KeyChar >= '1' && key.KeyChar <= '9' then
+    let n = int key.KeyChar - int '0'
+    if n <= panelCount then Some(FocusPanel n) else None
+  else
+    None
+
+let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
+  tryFocusNumber key
+  |> Option.orElseWith (fun () -> KeyBinding.handleKey outerBindings key model)
+  |> Option.orElseWith (fun () ->
     match model.Focus with
     | 1 -> Notes.handleKey key model.Notes |> Option.map NotesMsg
     | 2 -> TodoList.handleKey key model.TodoList |> Option.map TodoListMsg
     | 3 -> Timer.handleKey key model.Timer |> Option.map TimerMsg
     | 4 -> SessionInfo.handleKey key model.SessionInfo |> Option.map SessionInfoMsg
     | 5 -> Avatar.handleKey key model.Avatar |> Option.map AvatarMsg
-    | _ -> None
+    | _ -> None)
 
 let keyMap (model: Model) : Spectre.Tui.App.IKeyMap =
   let focusedKeyMap =
