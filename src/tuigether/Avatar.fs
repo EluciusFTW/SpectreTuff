@@ -10,9 +10,9 @@ open SpectreTuff.Layout
 open SpectreTuff.Widgets
 
 let private creatureByName (name: string) =
-  if String.IsNullOrWhiteSpace(name) then
-    library.[Random.Shared.Next(library.Length)]
-  else
+  match String.IsNullOrWhiteSpace(name) with
+  | true -> library.[Random.Shared.Next(library.Length)]
+  | false ->
     library
     |> List.tryFind (fun c -> String.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase))
     |> Option.defaultWith (fun () -> library.[Random.Shared.Next(library.Length)])

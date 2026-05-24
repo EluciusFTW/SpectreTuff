@@ -78,7 +78,11 @@ let jump (model: GameModel) =
   | _ -> model
 
 let private spawnObstacle (roadWidth: int) (speed: float) (tickCount: int) (rng: Random) =
-  let height = if tickCount < 30 then 1 else rng.Next(1, 3)
+  let height =
+    match tickCount < 30 with
+    | true -> 1
+    | false -> rng.Next(1, 3)
+
   let gap = max 12.0 (float (rng.Next(10, 18)) - speed * 0.5)
 
   {
@@ -105,10 +109,9 @@ let tick (roadWidth: int) (model: GameModel) =
     let clampedY = max 0.0 newCarY
 
     let clampedVelocity =
-      if clampedY <= 0.0 && newVelocity < 0.0 then
-        0.0
-      else
-        newVelocity
+      match clampedY <= 0.0 && newVelocity < 0.0 with
+      | true -> 0.0
+      | false -> newVelocity
 
     let movedObstacles = model.Obstacles |> List.map (fun o -> { o with X = o.X - model.Speed })
 
@@ -125,30 +128,31 @@ let tick (roadWidth: int) (model: GameModel) =
       | obs ->
         let last = obs |> List.maxBy (fun o -> o.X)
 
-        if last.X < float (carCol + 8) then
-          obs @ [ spawnObstacle roadWidth model.Speed model.TickCount rng ]
-        else
-          obs
+        match last.X < float (carCol + 8) with
+        | true -> obs @ [ spawnObstacle roadWidth model.Speed model.TickCount rng ]
+        | false -> obs
 
     let collision = newObstacles |> List.exists (collidesWithCar clampedY)
 
     let newScore = model.Score + passed
     let newSpeed = min maxSpeed (initialSpeed + sqrt (float (model.TickCount + 1)) * 0.001)
 
-    if collision then
-      {
+    match collision with
+    | true -> {
         model with
             Phase = GameOver gameOverTicks
             CarY = clampedY
             CarVelocity = 0.0
             Obstacles = newObstacles
       }
-    else
-      {
+    | false -> {
         model with
             CarY = clampedY
             CarVelocity = clampedVelocity
-            CanDoubleJump = if clampedY <= 0.0 then true else model.CanDoubleJump
+            CanDoubleJump =
+              match clampedY <= 0.0 with
+              | true -> true
+              | false -> model.CanDoubleJump
             Obstacles = newObstacles
             Score = newScore
             Speed = newSpeed

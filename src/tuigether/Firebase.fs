@@ -137,18 +137,17 @@ let leaveSession (client: FirebaseClient) (sessionId: string) (user: string) : A
       return Error e.Message
   }
 
-let setActiveDriver (client: FirebaseClient) sessionId (user: string) =
+let setActiveDriver (client: FirebaseClient) sessionId (user: string option) =
   async {
-    do!
-      client.Child(sessionsPath).Child(sessionId).Child("ActiveDriver").PutAsync(user :> obj)
-      |> Async.AwaitTask
-  }
-
-let clearActiveDriver (client: FirebaseClient) sessionId =
-  async {
-    do!
-      client.Child(sessionsPath).Child(sessionId).Child("ActiveDriver").DeleteAsync()
-      |> Async.AwaitTask
+    match user with
+    | Some u ->
+      do!
+        client.Child(sessionsPath).Child(sessionId).Child("ActiveDriver").PutAsync(u :> obj)
+        |> Async.AwaitTask
+    | None ->
+      do!
+        client.Child(sessionsPath).Child(sessionId).Child("ActiveDriver").DeleteAsync()
+        |> Async.AwaitTask
   }
 
 let setUserPresence (client: FirebaseClient) sessionId user (avatarName: string) (moodName: string) =

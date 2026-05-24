@@ -215,13 +215,14 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
   | SessionViewMsg(SessionView.SetActiveDriver user) ->
     match model.Page with
     | SessionViewPage vm ->
+      let driverOption =
+        match String.IsNullOrEmpty(user) with
+        | true -> None
+        | false -> Some user
+
       let cmd =
-        if String.IsNullOrEmpty(user) then
-          Cmd.OfAsync.attempt (fun () -> Firebase.clearActiveDriver client vm.SessionId) () (fun _ ->
-            SetActiveDriverCompleted(Ok()))
-        else
-          Cmd.OfAsync.attempt (fun () -> Firebase.setActiveDriver client vm.SessionId user) () (fun _ ->
-            SetActiveDriverCompleted(Ok()))
+        Cmd.OfAsync.attempt (fun () -> Firebase.setActiveDriver client vm.SessionId driverOption) () (fun _ ->
+          SetActiveDriverCompleted(Ok()))
 
       Some(model, cmd)
     | _ -> None
