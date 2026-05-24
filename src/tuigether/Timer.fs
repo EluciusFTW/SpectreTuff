@@ -270,8 +270,7 @@ let update msg model =
       let newGame = BreakGame.tick roadWidth game
 
       match newGame.Phase with
-      | BreakGame.Playing -> { model with Game = Some newGame }, gameTickCmd
-      | BreakGame.GameOver n when n > 0 -> { model with Game = Some newGame }, gameTickCmd
+      | BreakGame.Playing
       | BreakGame.GameOver _ -> { model with Game = Some newGame }, gameTickCmd
       | BreakGame.WaitingForStart -> { model with Game = Some newGame }, []
     | _ -> model, []

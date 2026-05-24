@@ -151,7 +151,7 @@ let init (currentUser: string) (avatarName: string) (data: Session.Data) =
       | false ->
         Some {
           Name = data.ActiveDriver
-          Creature = resolveCreature ()
+          Creature = creatureByName data.ActiveDriver
           Mood = Neutral
         }
     CurrentUser = me

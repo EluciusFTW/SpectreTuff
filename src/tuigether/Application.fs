@@ -114,22 +114,7 @@ let private buildPanels (model: Model) : Panel list =
 let init (user: string) () =
   let listModel, listCmd = SessionList.init user ()
 
-  let avatarName =
-    let envName = Environment.GetEnvironmentVariable("TUIGETHER_AVATAR")
-
-    if String.IsNullOrWhiteSpace(envName) then
-      let idx = Random.Shared.Next(library.Length)
-      library.[idx].Name
-    else
-      let found =
-        library
-        |> List.tryFind (fun c -> String.Equals(c.Name, envName, StringComparison.OrdinalIgnoreCase))
-
-      match found with
-      | Some c -> c.Name
-      | None ->
-        let idx = Random.Shared.Next(library.Length)
-        library.[idx].Name
+  let avatarName = Avatar.resolveName ()
 
   {
     Page = SessionListPage
