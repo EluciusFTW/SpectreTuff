@@ -21,6 +21,7 @@ type Model = {
   User: string
   Client: FirebaseClient
   InputMode: InputMode
+  ConnectedUsers: Map<string, Set<string>>
 }
 
 type Msg =
@@ -34,6 +35,8 @@ type Msg =
   | CancelNaming
   | DeleteSelected
   | FirebaseEvent of Firebase.SessionEvent
+  | ConnectedUserChanged of sessionId: string * user: string
+  | ConnectedUserRemoved of sessionId: string * user: string
   | CreateCompleted of Result<string, string>
   | DeleteCompleted of Result<unit, string>
 
@@ -47,6 +50,7 @@ let init (client: FirebaseClient) (user: string) () =
     User = user
     Client = client
     InputMode = Browsing
+    ConnectedUsers = Map.empty
   },
   []
 
@@ -179,6 +183,7 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
     {
       model with
           Sessions = model.Sessions |> List.filter (fun (k, _) -> k <> id)
+          ConnectedUsers = model.ConnectedUsers |> Map.remove id
     },
     [],
     None
@@ -189,11 +194,39 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
     },
     [],
     None
+  | ConnectedUserChanged(sessionId, user) ->
+    let existing = model.ConnectedUsers |> Map.tryFind sessionId |> Option.defaultValue Set.empty
+
+    {
+      model with
+          ConnectedUsers = model.ConnectedUsers |> Map.add sessionId (Set.add user existing)
+    },
+    [],
+    None
+  | ConnectedUserRemoved(sessionId, user) ->
+    let existing = model.ConnectedUsers |> Map.tryFind sessionId |> Option.defaultValue Set.empty
+
+    {
+      model with
+          ConnectedUsers = model.ConnectedUsers |> Map.add sessionId (Set.remove user existing)
+    },
+    [],
+    None
   | CreateCompleted _ -> model, [], None
   | DeleteCompleted _ -> model, [], None
 
 let subscriptions (model: Model) =
-  Firebase.Sessions.subscription model.Client FirebaseEvent model
+  let sessionsSub = Firebase.Sessions.subscription model.Client FirebaseEvent model
+
+  let perSessionSubs =
+    model.Sessions
+    |> List.collect (fun (sessionId, _) ->
+      Firebase.Users.subscription model.Client sessionId (fun ev ->
+        match ev with
+        | Firebase.UserChanged(user, _) -> ConnectedUserChanged(sessionId, user)
+        | Firebase.UserRemoved user -> ConnectedUserRemoved(sessionId, user)))
+
+  sessionsSub @ perSessionSubs
 
 let private browsingBindings: KeyBinding<Model, Msg> list = [
   KeyBinding.createSpecial ConsoleKey.UpArrow "up" Up
@@ -250,6 +283,12 @@ let private popupInnerLayout =
   layout "popup-inner"
   |> splitHorizontally [| layout "input" |> withFixedSize (Some 1); layout "error" |]
 
+let private formatConnected (users: Set<string>) =
+  match Set.count users with
+  | 0 -> ""
+  | count when count <= 3 -> sprintf "[%d] %s" count (users |> String.concat ", ")
+  | count -> sprintf "[%d]" count
+
 let widget (model: Model) : IWidget =
   let listWidget: IWidget =
     match model.Sessions with
@@ -257,14 +296,21 @@ let widget (model: Model) : IWidget =
     | _ ->
       let items =
         model.Sessions
-        |> List.choose (fun (_, data) ->
+        |> List.choose (fun (sessionId, data) ->
           match data :> obj with
           | null -> None
           | _ ->
             let startedAt = DateTimeOffset.FromUnixTimeMilliseconds(data.StartedAt).ToString("yyyy-MM-dd HH:mm")
 
             let status = Session.Status.fromString data.Status
-            Some(StatusListItem(sprintf "%-40s  %s" data.Goal startedAt, status)))
+
+            let connected =
+              model.ConnectedUsers
+              |> Map.tryFind sessionId
+              |> Option.defaultValue Set.empty
+              |> formatConnected
+
+            Some(StatusListItem(sprintf "%-40s  %s  %s" data.Goal startedAt connected, status)))
 
       list items
       |> selectedIndex model.SelectedIndex
