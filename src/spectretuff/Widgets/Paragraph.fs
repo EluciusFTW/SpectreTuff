@@ -8,7 +8,7 @@ open SpectreTuff
 module Paragraphs =
 
   let paragraph (lines: TextLine seq) =
-    Paragraph (List<TextLine> lines)
+    Paragraph(List<TextLine> lines)
 
   let ofString text =
     ParagraphExtensions.FromString text

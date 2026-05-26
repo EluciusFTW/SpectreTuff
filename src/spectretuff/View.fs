@@ -33,6 +33,8 @@ module View =
   let boundingBox (other: Rectangle) (rectangle: Rectangle) =
     rectangle.Union(other)
 
-  let intersectAll (rectangles: Rectangle seq) = Seq.reduce intersect rectangles
+  let intersectAll (rectangles: Rectangle seq) =
+    Seq.reduce intersect rectangles
 
-  let boundingBoxOf (rectangles: Rectangle seq) = Seq.reduce boundingBox rectangles
+  let boundingBoxOf (rectangles: Rectangle seq) =
+    Seq.reduce boundingBox rectangles

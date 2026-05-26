@@ -15,7 +15,7 @@ type Msg =
   | Increment of int
   | Decrement
 
-let private bindings : KeyBinding<Model, Msg> list = [
+let private bindings: KeyBinding<Model, Msg> list = [
   KeyBinding.create '+' "increment" (Increment 1)
   KeyBinding.create '-' "decrement" Decrement
 ]
@@ -35,7 +35,8 @@ let private counterInfo model =
   |> textBox
   |> withMode TextBoxMode.MultiLine
 
-let keyMap model = KeyBinding.toKeyMap bindings model
+let keyMap model =
+  KeyBinding.toKeyMap bindings model
 
 let widget (model: Model) =
   box (Look.fromColor Color.Purple)
