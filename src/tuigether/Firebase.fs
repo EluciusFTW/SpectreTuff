@@ -433,6 +433,30 @@ module Notes =
         ()
     }
 
+  let saveLock (client: FirebaseClient) (sessionId: string) (owner: string) (lockedAt: int64) : Async<unit> =
+    async {
+      try
+        do!
+          (notesPath client sessionId).Child("LockOwner").PutAsync(owner :> obj)
+          |> Async.AwaitTask
+
+        do!
+          (notesPath client sessionId).Child("LockedAt").PutAsync(lockedAt :> obj)
+          |> Async.AwaitTask
+      with _ ->
+        ()
+    }
+
+  let releaseLock (client: FirebaseClient) (sessionId: string) : Async<unit> =
+    async {
+      try
+        do! (notesPath client sessionId).Child("LockOwner").DeleteAsync() |> Async.AwaitTask
+
+        do! (notesPath client sessionId).Child("LockedAt").DeleteAsync() |> Async.AwaitTask
+      with _ ->
+        ()
+    }
+
   let private loadField<'T> (client: FirebaseClient) (sessionId: string) (key: string) : Async<'T> =
     async {
       try
@@ -453,11 +477,16 @@ module Notes =
 
         let! listItems = loadField<System.Collections.Generic.Dictionary<string, string>> client sessionId "ListItems"
 
+        let! lockOwner = loadField<string> client sessionId "LockOwner"
+        let! lockedAt = loadField<int64> client sessionId "LockedAt"
+
         return
           Some {
             FreetextContent = freetext
             NoteMode = noteMode
             ListItems = listItems
+            LockOwner = lockOwner
+            LockedAt = lockedAt
           }
       with _ ->
         return None

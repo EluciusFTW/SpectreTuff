@@ -18,6 +18,8 @@ type NotesState = {
   FreetextContent: string
   ListItems: Dictionary<string, string>
   NoteMode: string
+  LockOwner: string
+  LockedAt: int64
 }
 
 [<CLIMutable>]

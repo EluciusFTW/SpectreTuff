@@ -47,7 +47,7 @@ let init (client: FirebaseClient) (user: string) (avatarName: string) (sessionId
     AvatarName = avatarName
     Status = "joining…"
     Focus = 1
-    Notes = Notes.init client sessionId
+    Notes = Notes.init client sessionId user
     TodoList = TodoList.init ()
     Timer = Timer.init client sessionId
     SessionInfo = SessionInfo.init sessionId sessionData "joining…"
@@ -69,7 +69,12 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
       | Some driver when driver.Name = model.User -> Cmd.ofMsg (AvatarMsg(Avatar.SetActiveDriver None))
       | _ -> Cmd.none
 
-    model, Cmd.batch [ leaveCmd; clearDriverCmd ], Some LeaveSession
+    let exitNotesInsertCmd =
+      match Notes.isHoldingLock model.Notes with
+      | true -> Cmd.ofMsg (NotesMsg Notes.ExitInsert)
+      | false -> Cmd.none
+
+    model, Cmd.batch [ leaveCmd; clearDriverCmd; exitNotesInsertCmd ], Some LeaveSession
   | JoinCompleted(Ok()) ->
     {
       model with
