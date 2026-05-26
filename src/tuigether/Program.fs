@@ -1,38 +1,38 @@
 open System
 
-let url = Environment.GetEnvironmentVariable "FIREBASE_URL"
-let secret = Environment.GetEnvironmentVariable "FIREBASE_SECRET"
-let user = Environment.GetEnvironmentVariable "TUIGETHER_USER"
-
-if
-  String.IsNullOrWhiteSpace url
-  || String.IsNullOrWhiteSpace secret
-  || String.IsNullOrWhiteSpace user
-then
-  eprintfn "FIREBASE_URL, FIREBASE_SECRET, and TUIGETHER_USER environment variables are required."
+match Config.load () with
+| Error message ->
+  eprintfn "%s" message
   exit 1
+| Ok settings ->
+  let client =
+    Firebase.createClient {
+      Url = settings.FirebaseUrl
+      Secret = settings.FirebaseSecret
+    }
 
-let client = Firebase.createClient { Url = url; Secret = secret }
+  let terminal = Spectre.Tui.Terminal.Create()
+  // Work around ConPTY alt-screen sizing bug: exit and re-enter alt-screen
+  // so ConPTY allocates the buffer with the real window dimensions.
+  Console.Write "\x1b[?1049l"
+  Console.Out.Flush()
+  System.Threading.Thread.Sleep 30
+  Console.Write "\x1b[?1049h"
+  Console.Out.Flush()
 
-let terminal = Spectre.Tui.Terminal.Create()
-// Work around ConPTY alt-screen sizing bug: exit and re-enter alt-screen
-// so ConPTY allocates the buffer with the real window dimensions.
-Console.Write "\x1b[?1049l"
-Console.Out.Flush()
-System.Threading.Thread.Sleep 30
-Console.Write "\x1b[?1049h"
-Console.Out.Flush()
+  let renderer = Spectre.Tui.Renderer terminal
+  renderer.NoTargetFps()
 
-let renderer = Spectre.Tui.Renderer terminal
-renderer.NoTargetFps()
+  Elmish.Program.mkProgram
+    (Application.init client settings.TuigetherUser)
+    (Application.update client settings.TuigetherUser)
+    (Application.view renderer)
+  |> Elmish.Program.withSubscription (fun model ->
+    Input.subscription Application.InputMsg model
+    @ Tick.subscription (TimeSpan.FromMilliseconds 200.0) Application.Tick model
+    @ Application.subscriptions model)
+  |> Elmish.Program.withTrace Application.traceToLog
+  |> Elmish.Program.run
 
-Elmish.Program.mkProgram (Application.init client user) (Application.update client user) (Application.view renderer)
-|> Elmish.Program.withSubscription (fun model ->
-  Input.subscription Application.InputMsg model
-  @ Tick.subscription (TimeSpan.FromMilliseconds 200.0) Application.Tick model
-  @ Application.subscriptions model)
-|> Elmish.Program.withTrace Application.traceToLog
-|> Elmish.Program.run
-
-Application.exitEvent.Wait()
-Console.Clear()
+  Application.exitEvent.Wait()
+  Console.Clear()
