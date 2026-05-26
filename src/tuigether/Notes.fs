@@ -25,11 +25,15 @@ type Persistence = {
   SessionId: string
 }
 
+// List items carry their Firebase push-ID so deletes target a stable key and
+// concurrent multi-user edits do not collide.
+type NoteItem = { Id: string; Text: string }
+
 type Model = {
   NoteMode: NoteMode
   InputMode: InputMode
   FreetextContent: string
-  ListItems: string list
+  ListItems: NoteItem list
   ListIndex: int
   Persistence: Persistence
 }
@@ -164,47 +168,54 @@ let init (client: FirebaseClient) (sessionId: string) = {
   }
 }
 
-let private toNotesState (model: Model) : Session.NotesState =
-  let listItems =
-    model.ListItems
-    |> List.mapi (fun i item -> string i, item)
-    |> dict
-    |> Dictionary
+let private noteModeString (mode: NoteMode) =
+  match mode with
+  | List -> "List"
+  | Freetext -> "Freetext"
 
-  {
-    FreetextContent = model.FreetextContent
-    ListItems = listItems
-    NoteMode =
-      match model.NoteMode with
-      | List -> "List"
-      | _ -> "Freetext"
-  }
-
-let private saveCmd (model: Model) : Cmd<Msg> =
+let private saveFreetextCmd (model: Model) : Cmd<Msg> =
   Cmd.OfAsync.perform
-    (fun () -> Firebase.Notes.save model.Persistence.Client model.Persistence.SessionId (toNotesState model))
+    (fun () -> Firebase.Notes.saveFreetext model.Persistence.Client model.Persistence.SessionId model.FreetextContent)
     ()
     (fun () -> StateSaved)
 
-let private withSave (model: Model) : Model * Cmd<Msg> =
-  model, saveCmd model
+let private saveNoteModeCmd (model: Model) : Cmd<Msg> =
+  Cmd.OfAsync.perform
+    (fun () ->
+      Firebase.Notes.saveNoteMode model.Persistence.Client model.Persistence.SessionId (noteModeString model.NoteMode))
+    ()
+    (fun () -> StateSaved)
+
+let private addItemCmd (model: Model) (item: NoteItem) : Cmd<Msg> =
+  Cmd.OfAsync.perform
+    (fun () -> Firebase.Notes.addItem model.Persistence.Client model.Persistence.SessionId item.Id item.Text)
+    ()
+    (fun () -> StateSaved)
+
+let private deleteItemCmd (model: Model) (itemId: string) : Cmd<Msg> =
+  Cmd.OfAsync.perform
+    (fun () -> Firebase.Notes.deleteItem model.Persistence.Client model.Persistence.SessionId itemId)
+    ()
+    (fun () -> StateSaved)
 
 let update msg model =
   match msg with
   | SwitchToFreetext ->
-    {
+    let updated = {
       model with
           NoteMode = Freetext
           InputMode = Normal
     }
-    |> withSave
+
+    updated, saveNoteModeCmd updated
   | SwitchToList ->
-    {
+    let updated = {
       model with
           NoteMode = List
           InputMode = Normal
     }
-    |> withSave
+
+    updated, saveNoteModeCmd updated
   | EnterInsert -> { model with InputMode = Insert }, []
   | ExitInsert -> { model with InputMode = Normal }, []
   | TypeChar c ->
@@ -216,11 +227,12 @@ let update msg model =
       },
       []
     | _ ->
-      {
+      let updated = {
         model with
             FreetextContent = model.FreetextContent + string c
       }
-      |> withSave
+
+      updated, saveFreetextCmd updated
   | TypeBackspace ->
     match model.InputMode with
     | AddingItem text ->
@@ -237,39 +249,46 @@ let update msg model =
     | _ ->
       let text = model.FreetextContent
 
-      {
+      let updated = {
         model with
             FreetextContent =
               match text with
               | "" -> ""
               | _ -> text.[.. text.Length - 2]
       }
-      |> withSave
+
+      updated, saveFreetextCmd updated
   | TypeNewLine ->
     match model.InputMode with
     | AddingItem text ->
-      let insertAt = min (model.ListIndex + 1) model.ListItems.Length
-
       let newText =
         match text.Trim() with
         | "" -> "New note"
         | s -> s
 
-      let newItems = model.ListItems |> List.insertAt insertAt newText
+      // Push IDs are chronologically sortable, so new items always append.
+      let newItem = {
+        Id = Firebase.PushId.generate ()
+        Text = newText
+      }
 
-      {
+      let newItems = model.ListItems @ [ newItem ]
+
+      let updated = {
         model with
             ListItems = newItems
-            ListIndex = insertAt
+            ListIndex = newItems.Length - 1
             InputMode = Normal
       }
-      |> withSave
+
+      updated, addItemCmd updated newItem
     | _ ->
-      {
+      let updated = {
         model with
             FreetextContent = model.FreetextContent + "\n"
       }
-      |> withSave
+
+      updated, saveFreetextCmd updated
   | ListUp ->
     let count = model.ListItems.Length
 
@@ -297,6 +316,7 @@ let update msg model =
     match model.ListItems with
     | [] -> model, []
     | _ ->
+      let removed = model.ListItems.[model.ListIndex]
       let newItems = model.ListItems |> List.removeAt model.ListIndex
 
       let newIndex =
@@ -304,29 +324,42 @@ let update msg model =
         | [] -> 0
         | _ -> min model.ListIndex (newItems.Length - 1)
 
-      {
+      let updated = {
         model with
             ListItems = newItems
             ListIndex = newIndex
       }
-      |> withSave
+
+      updated, deleteItemCmd updated removed.Id
   | CopyItem ->
     match model.ListItems with
     | [] -> ()
-    | _ -> copyToClipboard model.ListItems.[model.ListIndex]
+    | _ -> copyToClipboard model.ListItems.[model.ListIndex].Text
 
     model, []
   | RemoteStateLoaded(Some state) ->
+    let listItems =
+      match isNull state.ListItems with
+      | true -> []
+      | false ->
+        state.ListItems
+        |> Seq.sortBy (fun kvp -> kvp.Key)
+        |> Seq.map (fun kvp -> { Id = kvp.Key; Text = kvp.Value })
+        |> Seq.toList
+
+    let listIndex =
+      match listItems with
+      | [] -> 0
+      | _ -> model.ListIndex |> max 0 |> min (listItems.Length - 1)
+
     {
       model with
           FreetextContent =
             match isNull state.FreetextContent with
             | true -> ""
             | false -> state.FreetextContent
-          ListItems =
-            match isNull state.ListItems with
-            | true -> []
-            | false -> state.ListItems.Values |> Seq.toList
+          ListItems = listItems
+          ListIndex = listIndex
           NoteMode =
             match state.NoteMode with
             | "List" -> List
@@ -350,7 +383,7 @@ let widget (model: Model) : IWidget =
         | AddingItem _ -> unfocused)
     :> IWidget
   | List ->
-    let items = model.ListItems |> List.map ListItem
+    let items = model.ListItems |> List.map (fun item -> ListItem item.Text)
 
     let listWidget =
       list items

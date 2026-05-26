@@ -342,6 +342,50 @@ module Users =
         |> Async.AwaitTask
     }
 
+// ─── Push IDs ────────────────────────────────────────────────────────────────
+//
+// Port of Firebase's client-side push-ID algorithm: 20-character lexicographically
+// sortable IDs (8 chars timestamp + 12 chars randomness). Concurrent generation
+// across users yields distinct keys, so per-item writes never collide.
+
+module PushId =
+
+  let private chars = "-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz"
+
+  let private rng = Random()
+  let private syncLock = obj ()
+  let private lastRandChars: int array = Array.zeroCreate 12
+  let mutable private lastPushTime = 0L
+
+  let generate () =
+    lock syncLock (fun () ->
+      let timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+      let duplicateTime = timestamp = lastPushTime
+      lastPushTime <- timestamp
+
+      let timestampChars = Array.zeroCreate<char> 8
+      let mutable remaining = timestamp
+
+      for i in 7..-1..0 do
+        timestampChars.[i] <- chars.[int (remaining % 64L)]
+        remaining <- remaining / 64L
+
+      match duplicateTime with
+      | false ->
+        for i in 0..11 do
+          lastRandChars.[i] <- rng.Next(64)
+      | true ->
+        let mutable carryIndex = 11
+
+        while carryIndex >= 0 && lastRandChars.[carryIndex] = 63 do
+          lastRandChars.[carryIndex] <- 0
+          carryIndex <- carryIndex - 1
+
+        lastRandChars.[carryIndex] <- lastRandChars.[carryIndex] + 1
+
+      let randChars = lastRandChars |> Array.map (fun n -> chars.[n])
+      String(timestampChars) + String(randChars))
+
 // ─── Notes ───────────────────────────────────────────────────────────────────
 
 module Notes =
@@ -349,25 +393,72 @@ module Notes =
   let private notesPath (client: FirebaseClient) (sessionId: string) =
     client.Child(sessionsPath).Child(sessionId).Child("widgetState").Child("notes")
 
-  let save (client: FirebaseClient) (sessionId: string) (state: Session.NotesState) : Async<unit> =
+  let saveFreetext (client: FirebaseClient) (sessionId: string) (text: string) : Async<unit> =
     async {
       try
-        do! (notesPath client sessionId).PutAsync(state :> obj) |> Async.AwaitTask
+        do!
+          (notesPath client sessionId).Child("FreetextContent").PutAsync(text :> obj)
+          |> Async.AwaitTask
       with _ ->
         ()
     }
 
+  let saveNoteMode (client: FirebaseClient) (sessionId: string) (mode: string) : Async<unit> =
+    async {
+      try
+        do!
+          (notesPath client sessionId).Child("NoteMode").PutAsync(mode :> obj)
+          |> Async.AwaitTask
+      with _ ->
+        ()
+    }
+
+  let addItem (client: FirebaseClient) (sessionId: string) (itemId: string) (text: string) : Async<unit> =
+    async {
+      try
+        do!
+          (notesPath client sessionId).Child("ListItems").Child(itemId).PutAsync(text :> obj)
+          |> Async.AwaitTask
+      with _ ->
+        ()
+    }
+
+  let deleteItem (client: FirebaseClient) (sessionId: string) (itemId: string) : Async<unit> =
+    async {
+      try
+        do!
+          (notesPath client sessionId).Child("ListItems").Child(itemId).DeleteAsync()
+          |> Async.AwaitTask
+      with _ ->
+        ()
+    }
+
+  let private loadField<'T> (client: FirebaseClient) (sessionId: string) (key: string) : Async<'T> =
+    async {
+      try
+        let! result = (notesPath client sessionId).Child(key).OnceSingleAsync<'T>() |> Async.AwaitTask
+        return result
+      with _ ->
+        return Unchecked.defaultof<'T>
+    }
+
+  // Load each field independently so a corrupted ListItems shape (e.g. legacy
+  // sessions where Firebase coerced integer-keyed dicts into JSON arrays) does
+  // not poison freetext and noteMode. ListItems just degrades to empty.
   let load (client: FirebaseClient) (sessionId: string) : Async<Session.NotesState option> =
     async {
       try
-        let! result =
-          (notesPath client sessionId).OnceSingleAsync<Session.NotesState>()
-          |> Async.AwaitTask
+        let! freetext = loadField<string> client sessionId "FreetextContent"
+        let! noteMode = loadField<string> client sessionId "NoteMode"
+
+        let! listItems = loadField<System.Collections.Generic.Dictionary<string, string>> client sessionId "ListItems"
 
         return
-          match isNull (box result) with
-          | true -> None
-          | false -> Some result
+          Some {
+            FreetextContent = freetext
+            NoteMode = noteMode
+            ListItems = listItems
+          }
       with _ ->
         return None
     }
