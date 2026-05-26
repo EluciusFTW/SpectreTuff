@@ -10,7 +10,7 @@ module Tables =
   // Column
 
   let tableColumn (header: string) =
-    TableColumn (TextLine (TextSpan header))
+    TableColumn(TextLine(TextSpan header))
 
   let withWidth width (column: TableColumn) =
     column.Width <- width
@@ -31,7 +31,7 @@ module Tables =
   // Widget
 
   let table (columns: TableColumn seq) (rows: 't seq) =
-    let widget = TableWidget<'t> (List<'t> rows)
+    let widget = TableWidget<'t>(List<'t> rows)
     widget.Columns.AddRange columns
     widget
 
@@ -67,7 +67,8 @@ module Tables =
     table.SelectedIndex <-
       match index with
       | Some i -> System.Nullable i
-      | None -> System.Nullable ()
+      | None -> System.Nullable()
+
     table
 
   let wrapAround (table: TableWidget<'t>) =

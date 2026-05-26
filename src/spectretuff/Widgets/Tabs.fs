@@ -31,6 +31,7 @@ module Tabs =
     match index with
     | Some i -> tabs.SelectedIndex <- i
     | None -> ()
+
     tabs
 
   let selectedIndex index tabs =

@@ -7,7 +7,7 @@ open SpectreTuff
 module ScrollViews =
 
   let scrollView (inner: IWidget) =
-    ScrollViewWidget (Inner = inner)
+    ScrollViewWidget(Inner = inner)
 
   let withVerticalScroll mode (scrollView: ScrollViewWidget) =
     scrollView.VerticalScroll <- mode
@@ -18,7 +18,7 @@ module ScrollViews =
     scrollView
 
   let withContentSize width height (scrollView: ScrollViewWidget) =
-    scrollView.ContentSize <- System.Nullable (Size (width, height))
+    scrollView.ContentSize <- System.Nullable(Size(width, height))
     scrollView
 
   let withScrollbarLook look (scrollView: ScrollViewWidget) =
