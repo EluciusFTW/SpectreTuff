@@ -3,9 +3,16 @@ module SessionList
 open System
 open Elmish
 open Firebase.Database
+open Spectre.Console
 open Spectre.Tui
 open Keymap
+open SpectreTuff
+open SpectreTuff.Layout
 open SpectreTuff.Widgets
+
+type InputMode =
+  | Browsing
+  | Naming of text: string * error: string option
 
 type Model = {
   Sessions: (string * Session.Data) list
@@ -13,13 +20,18 @@ type Model = {
   Status: string
   User: string
   Client: FirebaseClient
+  InputMode: InputMode
 }
 
 type Msg =
   | Up
   | Down
   | OpenSelected
-  | CreateNew
+  | BeginNaming
+  | TypeChar of char
+  | TypeBackspace
+  | ConfirmName
+  | CancelNaming
   | DeleteSelected
   | FirebaseEvent of Firebase.SessionEvent
   | CreateCompleted of Result<string, string>
@@ -34,12 +46,27 @@ let init (client: FirebaseClient) (user: string) () =
     Status = "loading…"
     User = user
     Client = client
+    InputMode = Browsing
   },
   []
 
 let private sortSessions sessions =
   sessions
   |> List.sortByDescending (fun (_, data: Session.Data) -> data.StartedAt)
+
+let capturesInput (model: Model) =
+  match model.InputMode with
+  | Naming _ -> true
+  | Browsing -> false
+
+let private isDuplicateGoal (model: Model) (goal: string) =
+  model.Sessions
+  |> List.exists (fun (_, data) ->
+    match data :> obj with
+    | null -> false
+    | _ ->
+      not (isNull data.Goal)
+      && String.Equals(data.Goal.Trim(), goal, StringComparison.OrdinalIgnoreCase))
 
 let update msg model : Model * Cmd<Msg> * OutMsg option =
   match msg with
@@ -63,8 +90,64 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
     | false ->
       let sessionId, sessionData = model.Sessions.[model.SelectedIndex]
       model, [], Some(OpenSession(sessionId, sessionData))
-  | CreateNew ->
-    model, Cmd.OfAsync.perform (fun () -> Firebase.Sessions.create model.Client model.User) () CreateCompleted, None
+  | BeginNaming ->
+    {
+      model with
+          InputMode = Naming("", None)
+    },
+    [],
+    None
+  | TypeChar c ->
+    match model.InputMode with
+    | Naming(text, _) ->
+      {
+        model with
+            InputMode = Naming(text + string c, None)
+      },
+      [],
+      None
+    | Browsing -> model, [], None
+  | TypeBackspace ->
+    match model.InputMode with
+    | Naming(text, _) ->
+      let trimmed =
+        match text with
+        | "" -> ""
+        | _ -> text.[.. text.Length - 2]
+
+      {
+        model with
+            InputMode = Naming(trimmed, None)
+      },
+      [],
+      None
+    | Browsing -> model, [], None
+  | ConfirmName ->
+    match model.InputMode with
+    | Naming(text, _) ->
+      let trimmed = text.Trim()
+
+      match trimmed with
+      | "" ->
+        {
+          model with
+              InputMode = Naming(text, Some "Title required")
+        },
+        [],
+        None
+      | _ when isDuplicateGoal model trimmed ->
+        {
+          model with
+              InputMode = Naming(text, Some "Title already used")
+        },
+        [],
+        None
+      | _ ->
+        { model with InputMode = Browsing },
+        Cmd.OfAsync.perform (fun () -> Firebase.Sessions.create model.Client model.User trimmed) () CreateCompleted,
+        None
+    | Browsing -> model, [], None
+  | CancelNaming -> { model with InputMode = Browsing }, [], None
   | DeleteSelected ->
     match model.Sessions.IsEmpty with
     | true -> model, [], None
@@ -112,11 +195,11 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
 let subscriptions (model: Model) =
   Firebase.Sessions.subscription model.Client FirebaseEvent model
 
-let private bindings: KeyBinding<Model, Msg> list = [
+let private browsingBindings: KeyBinding<Model, Msg> list = [
   KeyBinding.createSpecial ConsoleKey.UpArrow "up" Up
   KeyBinding.createSpecial ConsoleKey.DownArrow "down" Down
   KeyBinding.createSpecial ConsoleKey.Enter "open" OpenSelected
-  KeyBinding.create 'n' "new session" CreateNew
+  KeyBinding.create 'n' "new session" BeginNaming
   KeyBinding.dynamic (SpecialKey ConsoleKey.Delete) (fun model ->
     let canDelete =
       not model.Sessions.IsEmpty
@@ -131,24 +214,99 @@ let private bindings: KeyBinding<Model, Msg> list = [
     })
 ]
 
-let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
-  KeyBinding.handleKey bindings key model
+let private namingBindings: KeyBinding<Model, Msg> list = [
+  KeyBinding.createSpecial ConsoleKey.Enter "confirm" ConfirmName
+  KeyBinding.createSpecial ConsoleKey.Escape "cancel" CancelNaming
+]
 
-let keyMap model =
-  KeyBinding.toKeyMap bindings model
+let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
+  match model.InputMode with
+  | Naming _ ->
+    match key.Key with
+    | ConsoleKey.Escape -> Some CancelNaming
+    | ConsoleKey.Enter -> Some ConfirmName
+    | ConsoleKey.Backspace -> Some TypeBackspace
+    | _ when key.KeyChar <> '\000' -> Some(TypeChar key.KeyChar)
+    | _ -> None
+  | Browsing -> KeyBinding.handleKey browsingBindings key model
+
+let keyMap (model: Model) =
+  match model.InputMode with
+  | Naming _ -> KeyBinding.toKeyMap namingBindings model
+  | Browsing -> KeyBinding.toKeyMap browsingBindings model
+
+type private StatusListItem(text: string, status: Session.Status) =
+  interface IListWidgetItem with
+    member _.CreateText(_isSelected) =
+      let color =
+        match status with
+        | Session.Status.Created -> Color.Blue
+        | Session.Status.Started -> Color.Green
+        | Session.Status.Finished -> Color.Grey
+
+      Text(LineExtensions.FromString(text, Style color))
+
+let private popupInnerLayout =
+  layout "popup-inner"
+  |> splitHorizontally [| layout "input" |> withFixedSize (Some 1); layout "error" |]
 
 let widget (model: Model) : IWidget =
-  match model.Sessions with
-  | [] -> ofString "No sessions yet. Press [n] to create one." :> IWidget
-  | _ ->
-    let items =
-      model.Sessions
-      |> List.choose (fun (_, data) ->
-        match data :> obj with
-        | null -> None
-        | _ ->
-          let startedAt = DateTimeOffset.FromUnixTimeMilliseconds(data.StartedAt).ToString("yyyy-MM-dd HH:mm")
+  let listWidget: IWidget =
+    match model.Sessions with
+    | [] -> ofString "No sessions yet. Press [n] to create one." :> IWidget
+    | _ ->
+      let items =
+        model.Sessions
+        |> List.choose (fun (_, data) ->
+          match data :> obj with
+          | null -> None
+          | _ ->
+            let startedAt = DateTimeOffset.FromUnixTimeMilliseconds(data.StartedAt).ToString("yyyy-MM-dd HH:mm")
 
-          Some(ListItem(sprintf "%-40s  %s" data.Goal startedAt)))
+            let status = Session.Status.fromString data.Status
+            Some(StatusListItem(sprintf "%-40s  %s" data.Goal startedAt, status)))
 
-    list items |> selectedIndex model.SelectedIndex |> wrapAround :> IWidget
+      list items
+      |> selectedIndex model.SelectedIndex
+      |> withHighlightSymbol (LineExtensions.FromString("> ", Style Color.White))
+      |> wrapAround
+      :> IWidget
+
+  match model.InputMode with
+  | Browsing -> listWidget
+  | Naming(text, error) ->
+    { new IWidget with
+        member _.Render(ctx) =
+          ctx.Render(listWidget)
+
+          let inputWidget =
+            textBox text
+            |> withMode TextBoxMode.SingleLine
+            |> withPlaceholder "Session title…"
+            |> focused
+            |> withCursorAtEnd
+            :> IWidget
+
+          let popupContent =
+            { new IWidget with
+                member _.Render(innerCtx) =
+                  let port = getPort innerCtx.Viewport popupInnerLayout
+                  innerCtx.Render(inputWidget, port "input")
+
+                  match error with
+                  | Some msg ->
+                    let errorWidget =
+                      paragraph [ Text.line [ Text.styledSpan (Nullable(Style Color.Red)) msg ] ] :> IWidget
+
+                    innerCtx.Render(errorWidget, port "error")
+                  | None -> ()
+            }
+
+          let boxedInput =
+            box (Look.fromColor Color.Green)
+            |> withTitle "New session"
+            |> withInnerWidget popupContent
+            :> IWidget
+
+          ctx.Render(popup 50 5 |> withPopupContent boxedInput :> IWidget)
+    }

@@ -27,7 +27,7 @@ type Model = {
 type Msg =
   | GoBack
   | JoinCompleted of Result<unit, string>
-  | LeaveCompleted of Result<unit, string>
+  | StatusWritten
   | FocusPanel of int
   | NotesMsg of Notes.Msg
   | TodoListMsg of TodoList.Msg
@@ -36,7 +36,7 @@ type Msg =
   | AvatarMsg of Avatar.Msg
   | UpdateSession of Session.Data option
 
-type OutMsg = LeaveSession
+type OutMsg = LeaveSession of sessionId: string * user: string * wasStarted: bool
 
 let init (client: FirebaseClient) (user: string) (avatarName: string) (sessionId: string) (sessionData: Session.Data) =
   let model = {
@@ -61,8 +61,7 @@ let init (client: FirebaseClient) (user: string) (avatarName: string) (sessionId
 let update msg model : Model * Cmd<Msg> * OutMsg option =
   match msg with
   | GoBack ->
-    let leaveCmd =
-      Cmd.OfAsync.perform (fun () -> Firebase.Users.leave model.Client model.SessionId model.User) () LeaveCompleted
+    let wasStarted = Session.Status.fromString model.SessionData.Status = Session.Status.Started
 
     let clearDriverCmd =
       match model.Avatar.ActiveDriver with
@@ -74,14 +73,23 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
       | true -> Cmd.ofMsg (NotesMsg Notes.ExitInsert)
       | false -> Cmd.none
 
-    model, Cmd.batch [ leaveCmd; clearDriverCmd; exitNotesInsertCmd ], Some LeaveSession
+    model, Cmd.batch [ clearDriverCmd; exitNotesInsertCmd ], Some(LeaveSession(model.SessionId, model.User, wasStarted))
   | JoinCompleted(Ok()) ->
+    let startedCmd =
+      match Session.Status.fromString model.SessionData.Status with
+      | Session.Status.Created ->
+        Cmd.OfAsync.perform
+          (fun () -> Firebase.Sessions.setStatus model.Client model.SessionId Session.Status.Started)
+          ()
+          (fun () -> StatusWritten)
+      | _ -> Cmd.none
+
     {
       model with
           Status = "connected"
           SessionInfo = SessionInfo.init model.SessionId model.SessionData "connected"
     },
-    [],
+    startedCmd,
     None
   | JoinCompleted(Error e) ->
     let status = sprintf "join error: %s" e
@@ -93,7 +101,7 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
     },
     [],
     None
-  | LeaveCompleted _ -> model, [], None
+  | StatusWritten -> model, [], None
   | FocusPanel n -> { model with Focus = n }, [], None
   | NotesMsg nMsg ->
     let m, cmd = Notes.update nMsg model.Notes

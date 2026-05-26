@@ -26,6 +26,7 @@ type Msg =
   | InputMsg of Input.Msg
   | SessionListMsg of SessionList.Msg
   | SessionViewMsg of SessionView.Msg
+  | LeaveFinalized
   | ToggleLog
   | Tick
   | Exit
@@ -82,7 +83,7 @@ let private buildPanels (model: Model) : Panel list =
         LayoutSlot = "content"
         Focused = model.Focus = 1
         Boxed = true
-        CapturesInput = false
+        CapturesInput = SessionList.capturesInput model.SessionList
         Widget = SessionList.widget model.SessionList
         KeyMap = SessionList.keyMap model.SessionList
         HandleKey = fun key -> SessionList.handleKey key model.SessionList |> Option.map SessionListMsg
@@ -142,9 +143,27 @@ let private handleSessionListOutMsg
     Cmd.map SessionViewMsg viewCmd
   | None -> model, []
 
-let private handleSessionViewOutMsg (model: Model) (out: SessionView.OutMsg option) : Model * Cmd<Msg> =
+let private leaveFinalizeCmd (client: FirebaseClient) (sessionId: string) (user: string) (wasStarted: bool) : Cmd<Msg> =
+  Cmd.OfAsync.perform
+    (fun () ->
+      async {
+        let! result = Firebase.Users.leaveAndCheckLast client sessionId user
+
+        match result, wasStarted with
+        | Ok true, true -> do! Firebase.Sessions.setStatus client sessionId Session.Status.Finished
+        | _ -> ()
+      })
+    ()
+    (fun () -> LeaveFinalized)
+
+let private handleSessionViewOutMsg
+  (client: FirebaseClient)
+  (model: Model)
+  (out: SessionView.OutMsg option)
+  : Model * Cmd<Msg> =
   match out with
-  | Some SessionView.LeaveSession -> { model with Page = SessionListPage }, []
+  | Some(SessionView.LeaveSession(sessionId, user, wasStarted)) ->
+    { model with Page = SessionListPage }, leaveFinalizeCmd client sessionId user wasStarted
   | None -> model, []
 
 let update (client: FirebaseClient) (user: string) msg model =
@@ -182,9 +201,11 @@ let update (client: FirebaseClient) (user: string) msg model =
     | SessionViewPage viewModel ->
       let m, sessionCmd, outMsg = SessionView.update vMsg viewModel
       let modelAfterView = { model with Page = SessionViewPage m }
-      let modelAfterOut, outCmd = handleSessionViewOutMsg modelAfterView outMsg
+      let modelAfterOut, outCmd = handleSessionViewOutMsg client modelAfterView outMsg
       modelAfterOut, Cmd.batch [ Cmd.map SessionViewMsg sessionCmd; outCmd ]
     | _ -> model, []
+
+  | LeaveFinalized -> model, []
 
   | ToggleLog ->
     {

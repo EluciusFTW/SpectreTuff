@@ -27,48 +27,6 @@ let createClient (cfg: Config) =
 
   new FirebaseClient(cfg.Url, options)
 
-let private adjectives = [|
-  "Wobbly"
-  "Grumpy"
-  "Suspicious"
-  "Caffeinated"
-  "Haunted"
-  "Slightly Damp"
-  "Overly Formal"
-  "Chaotic"
-  "Smugly Confident"
-  "Reluctant"
-  "Aggressively Mediocre"
-  "Mildly Panicked"
-  "Existentially Confused"
-  "Eerily Calm"
-  "Suspiciously Cheerful"
-|]
-
-let private nouns = [|
-  "Penguin"
-  "Rubber Duck"
-  "Spreadsheet"
-  "Turnip"
-  "Wizard"
-  "Bureaucrat"
-  "Raccoon"
-  "Algorithm"
-  "Fondue Pot"
-  "Yak"
-  "Sock Puppet"
-  "Time Machine"
-  "Sandwich"
-  "Narwhal"
-  "Kumquat"
-|]
-
-let private randomSessionName () =
-  let rng = Random()
-  let adj = adjectives.[rng.Next adjectives.Length]
-  let noun = nouns.[rng.Next nouns.Length]
-  sprintf "The %s %s" adj noun
-
 let private formatError (e: exn) =
   sprintf "[%s] %s" (e.GetType().Name) e.Message
 
@@ -185,20 +143,31 @@ module Sessions =
     [ "firebase-sessions" ], fun dispatch -> subscribeSessions client (wrap >> dispatch)
   ]
 
-  let create (client: FirebaseClient) (user: string) : Async<Result<string, string>> =
+  let create (client: FirebaseClient) (user: string) (goal: string) : Async<Result<string, string>> =
     async {
       try
         let data = {
-          Session.Data.Goal = randomSessionName ()
+          Session.Data.Goal = goal
           Session.Data.StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
           Session.Data.Creator = user
           Session.Data.ActiveDriver = null
+          Session.Data.Status = Session.Status.toString Session.Status.Created
         }
 
         let! result = client.Child(sessionsPath).PostAsync(data) |> Async.AwaitTask
         return Ok result.Key
       with e ->
         return Error e.Message
+    }
+
+  let setStatus (client: FirebaseClient) (sessionId: string) (status: Session.Status) : Async<unit> =
+    async {
+      try
+        do!
+          client.Child(sessionsPath).Child(sessionId).Child("Status").PutAsync(Session.Status.toString status :> obj)
+          |> Async.AwaitTask
+      with _ ->
+        ()
     }
 
   let delete (client: FirebaseClient) (sessionId: string) : Async<Result<unit, string>> =
@@ -320,6 +289,25 @@ module Users =
           |> Async.AwaitTask
 
         return Ok()
+      with e ->
+        return Error e.Message
+    }
+
+  // Performs leave, then reads remaining connected users. The boolean indicates
+  // whether the session is now empty — used by callers to drive the
+  // Started → Finished transition without an extra roundtrip.
+  let leaveAndCheckLast (client: FirebaseClient) (sessionId: string) (user: string) : Async<Result<bool, string>> =
+    async {
+      try
+        do!
+          (connectedUsersPath client sessionId).Child(user).DeleteAsync()
+          |> Async.AwaitTask
+
+        let! remaining =
+          (connectedUsersPath client sessionId).OnceAsync<Session.UserPresence>()
+          |> Async.AwaitTask
+
+        return Ok(Seq.isEmpty remaining)
       with e ->
         return Error e.Message
     }
