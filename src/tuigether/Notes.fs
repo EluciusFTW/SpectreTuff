@@ -1,7 +1,10 @@
 module Notes
 
 open System
+open System.Collections.Generic
 open System.Runtime.InteropServices
+open Elmish
+open Firebase.Database
 open Spectre.Console
 open Spectre.Tui
 open Keymap
@@ -17,12 +20,18 @@ type InputMode =
   | Insert
   | AddingItem of string
 
+type Persistence = {
+  Client: FirebaseClient
+  SessionId: string
+}
+
 type Model = {
   NoteMode: NoteMode
   InputMode: InputMode
   FreetextContent: string
   ListItems: string list
   ListIndex: int
+  Persistence: Persistence
 }
 
 type Msg =
@@ -38,6 +47,8 @@ type Msg =
   | AddItem
   | DeleteItem
   | CopyItem
+  | RemoteStateLoaded of Session.NotesState option
+  | StateSaved
 
 let private insertModeBindings: KeyBinding<Model, Msg> list = [
   KeyBinding.createSpecial ConsoleKey.Escape "exit insert" ExitInsert
@@ -141,13 +152,42 @@ let private copyToClipboard (text: string) =
         ()
     | false -> ()
 
-let init () = {
+let init (client: FirebaseClient) (sessionId: string) = {
   NoteMode = Freetext
   InputMode = Normal
   FreetextContent = ""
   ListItems = []
   ListIndex = 0
+  Persistence = {
+    Client = client
+    SessionId = sessionId
+  }
 }
+
+let private toNotesState (model: Model) : Session.NotesState =
+  let listItems =
+    model.ListItems
+    |> List.mapi (fun i item -> string i, item)
+    |> dict
+    |> Dictionary
+
+  {
+    FreetextContent = model.FreetextContent
+    ListItems = listItems
+    NoteMode =
+      match model.NoteMode with
+      | List -> "List"
+      | _ -> "Freetext"
+  }
+
+let private saveCmd (model: Model) : Cmd<Msg> =
+  Cmd.OfAsync.perform
+    (fun () -> Firebase.Notes.save model.Persistence.Client model.Persistence.SessionId (toNotesState model))
+    ()
+    (fun () -> StateSaved)
+
+let private withSave (model: Model) : Model * Cmd<Msg> =
+  model, saveCmd model
 
 let update msg model =
   match msg with
@@ -156,15 +196,15 @@ let update msg model =
       model with
           NoteMode = Freetext
           InputMode = Normal
-    },
-    []
+    }
+    |> withSave
   | SwitchToList ->
     {
       model with
           NoteMode = List
           InputMode = Normal
-    },
-    []
+    }
+    |> withSave
   | EnterInsert -> { model with InputMode = Insert }, []
   | ExitInsert -> { model with InputMode = Normal }, []
   | TypeChar c ->
@@ -179,8 +219,8 @@ let update msg model =
       {
         model with
             FreetextContent = model.FreetextContent + string c
-      },
-      []
+      }
+      |> withSave
   | TypeBackspace ->
     match model.InputMode with
     | AddingItem text ->
@@ -203,8 +243,8 @@ let update msg model =
               match text with
               | "" -> ""
               | _ -> text.[.. text.Length - 2]
-      },
-      []
+      }
+      |> withSave
   | TypeNewLine ->
     match model.InputMode with
     | AddingItem text ->
@@ -222,14 +262,14 @@ let update msg model =
             ListItems = newItems
             ListIndex = insertAt
             InputMode = Normal
-      },
-      []
+      }
+      |> withSave
     | _ ->
       {
         model with
             FreetextContent = model.FreetextContent + "\n"
-      },
-      []
+      }
+      |> withSave
   | ListUp ->
     let count = model.ListItems.Length
 
@@ -268,14 +308,36 @@ let update msg model =
         model with
             ListItems = newItems
             ListIndex = newIndex
-      },
-      []
+      }
+      |> withSave
   | CopyItem ->
     match model.ListItems with
     | [] -> ()
     | _ -> copyToClipboard model.ListItems.[model.ListIndex]
 
     model, []
+  | RemoteStateLoaded(Some state) ->
+    {
+      model with
+          FreetextContent =
+            match isNull state.FreetextContent with
+            | true -> ""
+            | false -> state.FreetextContent
+          ListItems =
+            match isNull state.ListItems with
+            | true -> []
+            | false -> state.ListItems.Values |> Seq.toList
+          NoteMode =
+            match state.NoteMode with
+            | "List" -> List
+            | _ -> Freetext
+    },
+    []
+  | RemoteStateLoaded None -> model, []
+  | StateSaved -> model, []
+
+let subscriptions (model: Model) =
+  Firebase.Notes.subscription model.Persistence.Client model.Persistence.SessionId RemoteStateLoaded
 
 let widget (model: Model) : IWidget =
   match model.NoteMode with

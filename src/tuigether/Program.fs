@@ -26,17 +26,11 @@ Console.Out.Flush()
 let renderer = Spectre.Tui.Renderer terminal
 renderer.NoTargetFps()
 
-Elmish.Program.mkProgram (Application.init user) (Application.update client user) (Application.view renderer)
+Elmish.Program.mkProgram (Application.init client user) (Application.update client user) (Application.view renderer)
 |> Elmish.Program.withSubscription (fun model ->
-  Firebase.subscription client Application.FirebaseMsg model
-  @ Input.subscription Application.InputMsg model
+  Input.subscription Application.InputMsg model
   @ Tick.subscription (TimeSpan.FromMilliseconds 200.0) Application.Tick model
-  @ (match model.Page with
-     | Application.SessionViewPage viewModel -> [
-         Firebase.widgetStateSubscription client viewModel.SessionId Application.FirebaseMsg
-         Firebase.connectedUsersSubscription client viewModel.SessionId Application.FirebaseMsg
-       ]
-     | Application.SessionListPage -> []))
+  @ Application.subscriptions model)
 |> Elmish.Program.withTrace Application.traceToLog
 |> Elmish.Program.run
 

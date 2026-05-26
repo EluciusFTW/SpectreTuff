@@ -1,7 +1,8 @@
 module Avatar
 
 open System
-open System.Collections.Generic
+open Elmish
+open Firebase.Database
 open Spectre.Console
 open Spectre.Tui
 open Keymap
@@ -41,55 +42,38 @@ type User = {
   Mood: Mood
 }
 
+type Persistence = {
+  Client: FirebaseClient
+  SessionId: string
+}
+
 type Model = {
   Users: User list
   ActiveDriver: User option
   CurrentUser: User
+  Persistence: Persistence
 }
 
 type Msg =
   | NextMood
   | UpdateSession of Session.Data
+  | RemoteUserChanged of user: string * presence: Session.UserPresence
+  | RemoteUserRemoved of user: string
+  | SetActiveDriver of string option
+  | PresenceSaved
+  | ActiveDriverSaved
 
-let applyConnectedUsers (connectedUsers: Dictionary<string, Session.UserPresence>) (model: Model) : Model =
-  match isNull (connectedUsers :> obj) with
-  | true -> model
-  | false ->
-    let users =
-      connectedUsers
-      |> Seq.map (fun kv ->
-        let presence = kv.Value
-        let avatarName: string = if isNull (presence :> obj) then null else presence.Avatar
-        let moodStr: string = if isNull (presence :> obj) then null else presence.Mood
-        let mood = moodFromString moodStr
+let private upsertUser (userName: string) (presence: Session.UserPresence) (model: Model) : Model =
+  let avatarName: string =
+    match isNull (presence :> obj) with
+    | true -> null
+    | false -> presence.Avatar
 
-        match kv.Key = model.CurrentUser.Name with
-        | true -> { model.CurrentUser with Mood = mood }
-        | false -> {
-            Name = kv.Key
-            Creature = creatureByName avatarName
-            Mood = mood
-          })
-      |> Seq.toList
+  let moodStr: string =
+    match isNull (presence :> obj) with
+    | true -> null
+    | false -> presence.Mood
 
-    let me =
-      users
-      |> List.tryFind (fun u -> u.Name = model.CurrentUser.Name)
-      |> Option.defaultValue model.CurrentUser
-
-    {
-      model with
-          Users = users
-          CurrentUser = me
-          ActiveDriver =
-            match model.ActiveDriver with
-            | None -> None
-            | Some d -> users |> List.tryFind (fun u -> u.Name = d.Name)
-    }
-
-let upsertConnectedUser (userName: string) (presence: Session.UserPresence) (model: Model) : Model =
-  let avatarName: string = if isNull (presence :> obj) then null else presence.Avatar
-  let moodStr: string = if isNull (presence :> obj) then null else presence.Mood
   let mood = moodFromString moodStr
 
   let updated =
@@ -122,7 +106,7 @@ let upsertConnectedUser (userName: string) (presence: Session.UserPresence) (mod
           | other -> other
   }
 
-let removeConnectedUser (userName: string) (model: Model) : Model =
+let private removeUser (userName: string) (model: Model) : Model =
   match userName = model.CurrentUser.Name with
   | true -> model
   | false -> {
@@ -134,7 +118,7 @@ let removeConnectedUser (userName: string) (model: Model) : Model =
             | other -> other
     }
 
-let init (currentUser: string) (avatarName: string) (data: Session.Data) =
+let init (client: FirebaseClient) (sessionId: string) (currentUser: string) (avatarName: string) (data: Session.Data) =
   let myCreature = creatureByName avatarName
 
   let me = {
@@ -155,7 +139,29 @@ let init (currentUser: string) (avatarName: string) (data: Session.Data) =
           Mood = Neutral
         }
     CurrentUser = me
+    Persistence = {
+      Client = client
+      SessionId = sessionId
+    }
   }
+
+let private presenceCmd (model: Model) : Cmd<Msg> =
+  Cmd.OfAsync.perform
+    (fun () ->
+      Firebase.Users.setPresence
+        model.Persistence.Client
+        model.Persistence.SessionId
+        model.CurrentUser.Name
+        model.CurrentUser.Creature.Name
+        (moodToString model.CurrentUser.Mood))
+    ()
+    (fun () -> PresenceSaved)
+
+let private activeDriverCmd (model: Model) (driver: string option) : Cmd<Msg> =
+  Cmd.OfAsync.perform
+    (fun () -> Firebase.Sessions.setActiveDriver model.Persistence.Client model.Persistence.SessionId driver)
+    ()
+    (fun () -> ActiveDriverSaved)
 
 let update msg model =
   match msg with
@@ -168,7 +174,7 @@ let update msg model =
 
     let updated = { model.CurrentUser with Mood = next }
 
-    {
+    let m = {
       model with
           CurrentUser = updated
           Users =
@@ -181,8 +187,9 @@ let update msg model =
             match model.ActiveDriver with
             | Some d when d.Name = updated.Name -> Some updated
             | other -> other
-    },
-    []
+    }
+
+    m, presenceCmd m
 
   | UpdateSession data ->
     {
@@ -193,6 +200,18 @@ let update msg model =
             | false -> model.Users |> List.tryFind (fun u -> u.Name = data.ActiveDriver)
     },
     []
+
+  | RemoteUserChanged(user, presence) -> upsertUser user presence model, []
+  | RemoteUserRemoved user -> removeUser user model, []
+  | SetActiveDriver driver -> model, activeDriverCmd model driver
+  | PresenceSaved -> model, []
+  | ActiveDriverSaved -> model, []
+
+let subscriptions (model: Model) =
+  Firebase.Users.subscription model.Persistence.Client model.Persistence.SessionId (fun ev ->
+    match ev with
+    | Firebase.UserChanged(user, presence) -> RemoteUserChanged(user, presence)
+    | Firebase.UserRemoved user -> RemoteUserRemoved user)
 
 let private bindings: KeyBinding<Model, Msg> list = [ KeyBinding.create 'm' "mood" NextMood ]
 

@@ -2,6 +2,7 @@ module SessionView
 
 open System
 open Elmish
+open Firebase.Database
 open Spectre.Tui
 open Spectre.Tui.App
 open Keymap
@@ -9,9 +10,11 @@ open SpectreTuff.Layout
 open SpectreTuff.Widgets
 
 type Model = {
+  Client: FirebaseClient
   SessionId: string
   SessionData: Session.Data
   User: string
+  AvatarName: string
   Status: string
   Focus: int
   Notes: Notes.Model
@@ -24,49 +27,57 @@ type Model = {
 type Msg =
   | GoBack
   | JoinCompleted of Result<unit, string>
+  | LeaveCompleted of Result<unit, string>
   | FocusPanel of int
   | NotesMsg of Notes.Msg
   | TodoListMsg of TodoList.Msg
   | TimerMsg of Timer.Msg
   | SessionInfoMsg of SessionInfo.Msg
   | AvatarMsg of Avatar.Msg
-  | UpdateSession of Session.Data
-  | SetActiveDriver of string
-  | SetUserMood of Mood
-  | WidgetStateLoaded of Session.WidgetState option
-  | UpsertConnectedUser of string * Session.UserPresence
-  | RemoveConnectedUser of string
-  | StateSaved
+  | UpdateSession of Session.Data option
 
-let init (user: string) (avatarName: string) (sessionId: string) (sessionData: Session.Data) = {
-  SessionId = sessionId
-  SessionData = sessionData
-  User = user
-  Status = "joining…"
-  Focus = 1
-  Notes = Notes.init ()
-  TodoList = TodoList.init ()
-  Timer = Timer.init ()
-  SessionInfo = SessionInfo.init sessionId sessionData "joining…"
-  Avatar = Avatar.init user avatarName sessionData
-}
+type OutMsg = LeaveSession
 
-let update msg model =
+let init (client: FirebaseClient) (user: string) (avatarName: string) (sessionId: string) (sessionData: Session.Data) =
+  let model = {
+    Client = client
+    SessionId = sessionId
+    SessionData = sessionData
+    User = user
+    AvatarName = avatarName
+    Status = "joining…"
+    Focus = 1
+    Notes = Notes.init client sessionId
+    TodoList = TodoList.init ()
+    Timer = Timer.init client sessionId
+    SessionInfo = SessionInfo.init sessionId sessionData "joining…"
+    Avatar = Avatar.init client sessionId user avatarName sessionData
+  }
+
+  let joinCmd = Cmd.OfAsync.perform (fun () -> Firebase.Users.join client sessionId user avatarName) () JoinCompleted
+
+  model, joinCmd
+
+let update msg model : Model * Cmd<Msg> * OutMsg option =
   match msg with
   | GoBack ->
-    let clearCmd =
+    let leaveCmd =
+      Cmd.OfAsync.perform (fun () -> Firebase.Users.leave model.Client model.SessionId model.User) () LeaveCompleted
+
+    let clearDriverCmd =
       match model.Avatar.ActiveDriver with
-      | Some driver when driver.Name = model.User -> Cmd.ofMsg (SetActiveDriver "")
+      | Some driver when driver.Name = model.User -> Cmd.ofMsg (AvatarMsg(Avatar.SetActiveDriver None))
       | _ -> Cmd.none
 
-    model, clearCmd
+    model, Cmd.batch [ leaveCmd; clearDriverCmd ], Some LeaveSession
   | JoinCompleted(Ok()) ->
     {
       model with
           Status = "connected"
           SessionInfo = SessionInfo.init model.SessionId model.SessionData "connected"
     },
-    []
+    [],
+    None
   | JoinCompleted(Error e) ->
     let status = sprintf "join error: %s" e
 
@@ -75,14 +86,16 @@ let update msg model =
           Status = status
           SessionInfo = SessionInfo.init model.SessionId model.SessionData status
     },
-    []
-  | FocusPanel n -> { model with Focus = n }, []
+    [],
+    None
+  | LeaveCompleted _ -> model, [], None
+  | FocusPanel n -> { model with Focus = n }, [], None
   | NotesMsg nMsg ->
     let m, cmd = Notes.update nMsg model.Notes
-    { model with Notes = m }, Cmd.map NotesMsg cmd
+    { model with Notes = m }, Cmd.map NotesMsg cmd, None
   | TodoListMsg tMsg ->
     let m, cmd = TodoList.update tMsg model.TodoList
-    { model with TodoList = m }, Cmd.map TodoListMsg cmd
+    { model with TodoList = m }, Cmd.map TodoListMsg cmd, None
   | TimerMsg Timer.SwitchDriver ->
     let users = model.Avatar.Users
 
@@ -101,10 +114,7 @@ let update msg model =
     let connectedNames = users |> List.map (fun u -> u.Name)
     let avatarMap = users |> List.map (fun u -> u.Name, u.Creature) |> Map.ofList
 
-    let driverCmd =
-      match nextDriverName with
-      | None -> Cmd.ofMsg (SetActiveDriver "")
-      | Some u -> Cmd.ofMsg (SetActiveDriver u)
+    let driverCmd = Cmd.ofMsg (AvatarMsg(Avatar.SetActiveDriver nextDriverName))
 
     {
       model with
@@ -114,19 +124,23 @@ let update msg model =
           }
           Timer = Timer.resetForDriver model.Timer nextDriverName connectedNames avatarMap
     },
-    Cmd.batch [ driverCmd; Cmd.ofMsg (TimerMsg Timer.Start) ]
-
+    Cmd.batch [ driverCmd; Cmd.ofMsg (TimerMsg Timer.Start) ],
+    None
   | TimerMsg tMsg ->
     let m, cmd = Timer.update tMsg model.Timer
-    { model with Timer = m }, Cmd.map TimerMsg cmd
+    { model with Timer = m }, Cmd.map TimerMsg cmd, None
   | SessionInfoMsg sMsg ->
     let m, cmd = SessionInfo.update sMsg model.SessionInfo
-    { model with SessionInfo = m }, Cmd.map SessionInfoMsg cmd
-  | UpdateSession data ->
+    { model with SessionInfo = m }, Cmd.map SessionInfoMsg cmd, None
+  | AvatarMsg aMsg ->
+    let m, cmd = Avatar.update aMsg model.Avatar
+    { model with Avatar = m }, Cmd.map AvatarMsg cmd, None
+  | UpdateSession(Some data) ->
     let avatarM, avatarCmd = Avatar.update (Avatar.UpdateSession data) model.Avatar
     let connectedUsers = avatarM.Users |> List.map (fun u -> u.Name)
     let activeDriver = avatarM.ActiveDriver |> Option.map (fun u -> u.Name)
     let userAvatarMap = avatarM.Users |> List.map (fun u -> u.Name, u.Creature) |> Map.ofList
+
     let timerM, timerCmd = Timer.update (Timer.SessionUpdated(connectedUsers, activeDriver, userAvatarMap)) model.Timer
 
     {
@@ -135,97 +149,19 @@ let update msg model =
           Timer = timerM
           SessionData = data
     },
-    Cmd.batch [ Cmd.map AvatarMsg avatarCmd; Cmd.map TimerMsg timerCmd ]
-  | AvatarMsg Avatar.NextMood ->
-    let m, cmd = Avatar.update Avatar.NextMood model.Avatar
-    { model with Avatar = m }, Cmd.batch [ Cmd.map AvatarMsg cmd; Cmd.ofMsg (SetUserMood m.CurrentUser.Mood) ]
+    Cmd.batch [ Cmd.map AvatarMsg avatarCmd; Cmd.map TimerMsg timerCmd ],
+    None
+  | UpdateSession None -> model, [], None
 
-  | AvatarMsg aMsg ->
-    let m, cmd = Avatar.update aMsg model.Avatar
-    { model with Avatar = m }, Cmd.map AvatarMsg cmd
+let private subMap (wrap: 'a -> 'b) (subs: (string list * (Dispatch<'a> -> IDisposable)) list) =
+  subs
+  |> List.map (fun (key, start) -> key, (fun (dispatch: Dispatch<'b>) -> start (wrap >> dispatch)))
 
-  | SetActiveDriver _ -> model, []
-  | SetUserMood _ -> model, []
-  | WidgetStateLoaded(Some state) ->
-    let notes = {
-      model.Notes with
-          FreetextContent =
-            if isNull state.NotesFreetextContent then
-              ""
-            else
-              state.NotesFreetextContent
-          ListItems =
-            if isNull state.NotesListItems then
-              []
-            else
-              state.NotesListItems.Values |> Seq.toList
-          NoteMode =
-            match state.NotesNoteMode with
-            | "List" -> Notes.List
-            | _ -> Notes.Freetext
-    }
-
-    let timer = {
-      model.Timer with
-          Remaining = TimeSpan.FromSeconds(float state.TimerRemainingSeconds)
-    }
-
-    let timerCmd =
-      match state.TimerIsRunning, model.Timer.State with
-      | true, (Timer.Idle | Timer.Paused) -> Cmd.ofMsg (TimerMsg Timer.Start)
-      | false, Timer.Running -> Cmd.ofMsg (TimerMsg Timer.Pause)
-      | _ -> Cmd.none
-
-    {
-      model with
-          Notes = notes
-          Timer = timer
-    },
-    timerCmd
-  | WidgetStateLoaded None -> model, []
-  | UpsertConnectedUser(user, presence) ->
-    {
-      model with
-          Avatar = Avatar.upsertConnectedUser user presence model.Avatar
-    },
-    []
-  | RemoveConnectedUser user ->
-    {
-      model with
-          Avatar = Avatar.removeConnectedUser user model.Avatar
-    },
-    []
-  | StateSaved -> model, []
-
-let shouldPersist (msg: Msg) (_model: Model) =
-  match msg with
-  | NotesMsg _ -> true
-  | TimerMsg Timer.Start
-  | TimerMsg Timer.Stop
-  | TimerMsg Timer.Pause
-  | TimerMsg Timer.SkipTimer
-  | TimerMsg Timer.SkipPause
-  | TimerMsg Timer.WorkFinished
-  | TimerMsg Timer.BreakFinished -> true
-  | _ -> false
-
-let toWidgetState (model: Model) : Session.WidgetStateSave =
-  let listItems =
-    model.Notes.ListItems
-    |> List.mapi (fun i item -> string i, item)
-    |> dict
-    |> System.Collections.Generic.Dictionary
-
-  {
-    NotesFreetextContent = model.Notes.FreetextContent
-    NotesListItems = listItems
-    NotesNoteMode =
-      match model.Notes.NoteMode with
-      | Notes.List -> "List"
-      | _ -> "Freetext"
-    TimerRemainingSeconds = int model.Timer.Remaining.TotalSeconds
-    TimerIsRunning = model.Timer.State = Timer.Running
-  }
+let subscriptions (model: Model) =
+  (Notes.subscriptions model.Notes |> subMap NotesMsg)
+  @ (Timer.subscriptions model.Timer |> subMap TimerMsg)
+  @ (Avatar.subscriptions model.Avatar |> subMap AvatarMsg)
+  @ Firebase.Sessions.dataSubscription model.Client model.SessionId UpdateSession
 
 let private outerBindings: KeyBinding<Model, Msg> list = [
   KeyBinding.dynamic (SpecialKey ConsoleKey.Backspace) (fun _ -> {
@@ -257,11 +193,20 @@ let private tryFocusNumber (key: ConsoleKeyInfo) =
 let capturesInput (model: Model) =
   model.Focus = 1 && Notes.capturesInput model.Notes
 
+let private globalKeyToMsg (gMsg: GlobalKeys.Msg) : Msg =
+  match gMsg with
+  | GlobalKeys.PauseDrive -> TimerMsg Timer.Pause
+  | GlobalKeys.ResumeDrive -> TimerMsg Timer.Start
+  | GlobalKeys.Teleport -> TimerMsg Timer.SkipTimer
+  | GlobalKeys.NextDrive -> TimerMsg Timer.SwitchDriver
+
 let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
   match capturesInput model with
   | true -> Notes.handleKey key model.Notes |> Option.map NotesMsg
   | false ->
-    tryFocusNumber key
+    GlobalKeys.handleKey key
+    |> Option.map globalKeyToMsg
+    |> Option.orElseWith (fun () -> tryFocusNumber key)
     |> Option.orElseWith (fun () -> KeyBinding.handleKey outerBindings key model)
     |> Option.orElseWith (fun () ->
       match model.Focus with
@@ -274,6 +219,8 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
 
 let keyMap (model: Model) : Spectre.Tui.App.IKeyMap =
   KeyBinding.toKeyMap outerBindings model
+
+let helpKeyMaps: IKeyMap list = [ GlobalKeys.keyMap ]
 
 let private emptyKeyMap: IKeyMap =
   { new IKeyMap with

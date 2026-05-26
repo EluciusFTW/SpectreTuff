@@ -2,6 +2,7 @@ module Timer
 
 open System
 open Elmish
+open Firebase.Database
 open Spectre.Console
 open Spectre.Tui
 open SpectreTuff
@@ -20,6 +21,11 @@ type TimerState =
   | Flashing of int
   | Breaking of int
 
+type Persistence = {
+  Client: FirebaseClient
+  SessionId: string
+}
+
 type Model = {
   Remaining: TimeSpan
   Phase: Phase
@@ -29,6 +35,7 @@ type Model = {
   UserAvatars: Map<string, Creature>
   TickEpoch: int
   Game: BreakGame.GameModel option
+  Persistence: Persistence
 }
 
 type Msg =
@@ -48,6 +55,8 @@ type Msg =
   | BreakGameJump
   | BreakGameTick
   | SessionUpdated of string list * string option * Map<string, Creature>
+  | RemoteStateLoaded of Session.TimerState option
+  | StateSaved
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -94,7 +103,7 @@ let private nextInList (users: string list) (current: string option) =
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
-let init () = {
+let init (client: FirebaseClient) (sessionId: string) = {
   Remaining = workDuration
   Phase = Work
   State = Idle
@@ -103,6 +112,10 @@ let init () = {
   UserAvatars = Map.empty
   TickEpoch = 0
   Game = None
+  Persistence = {
+    Client = client
+    SessionId = sessionId
+  }
 }
 
 let resetForDriver (previous: Model) (driver: string option) (users: string list) (avatars: Map<string, Creature>) = {
@@ -114,7 +127,21 @@ let resetForDriver (previous: Model) (driver: string option) (users: string list
   UserAvatars = avatars
   TickEpoch = previous.TickEpoch + 1
   Game = None
+  Persistence = previous.Persistence
 }
+
+// ─── Persistence ─────────────────────────────────────────────────────────────
+
+let private toTimerState (model: Model) : Session.TimerState = {
+  RemainingSeconds = int model.Remaining.TotalSeconds
+  IsRunning = model.State = Running
+}
+
+let private saveCmd (model: Model) : Cmd<Msg> =
+  Cmd.OfAsync.perform
+    (fun () -> Firebase.Timer.save model.Persistence.Client model.Persistence.SessionId (toTimerState model))
+    ()
+    (fun () -> StateSaved)
 
 // ─── Update ──────────────────────────────────────────────────────────────────
 
@@ -126,29 +153,32 @@ let update msg model =
     | Paused ->
       let epoch = model.TickEpoch + 1
 
-      {
+      let m = {
         model with
             State = Running
             TickEpoch = epoch
-      },
-      tickCmd epoch
+      }
+
+      m, Cmd.batch [ tickCmd epoch; saveCmd m ]
     | _ -> model, []
   | Stop ->
-    {
+    let m = {
       model with
           State = Idle
           TickEpoch = model.TickEpoch + 1
-    },
-    []
+    }
+
+    m, saveCmd m
   | Pause ->
     match model.State with
     | Running ->
-      {
+      let m = {
         model with
             State = Paused
             TickEpoch = model.TickEpoch + 1
-      },
-      []
+      }
+
+      m, saveCmd m
     | _ -> model, []
   | Tick epoch when epoch <> model.TickEpoch -> model, []
   | Tick _ ->
@@ -164,23 +194,25 @@ let update msg model =
   | WorkFinished ->
     sendNotification ()
 
-    {
+    let m = {
       model with
           State = Flashing flashFrameCount
-    },
-    flashTickCmd
+    }
+
+    m, Cmd.batch [ flashTickCmd; saveCmd m ]
   | SkipTimer ->
     match model.State with
     | Running
     | Paused ->
       sendNotification ()
 
-      {
+      let m = {
         model with
             State = Flashing flashFrameCount
             Remaining = TimeSpan.Zero
-      },
-      flashTickCmd
+      }
+
+      m, Cmd.batch [ flashTickCmd; saveCmd m ]
     | _ -> model, []
   | FlashTick ->
     match model.State with
@@ -212,25 +244,27 @@ let update msg model =
         breakTickCmd
     | _ -> model, []
   | BreakFinished ->
-    {
+    let m = {
       model with
           State = Idle
           Phase = Work
           Remaining = workDuration
           Game = None
-    },
-    []
+    }
+
+    m, saveCmd m
   | SkipPause ->
     match model.State with
     | Breaking _ ->
-      {
+      let m = {
         model with
             State = Idle
             Phase = Work
             Remaining = workDuration
             Game = None
-      },
-      []
+      }
+
+      m, saveCmd m
     | _ -> model, []
   | Reset ->
     match model.State with
@@ -282,6 +316,19 @@ let update msg model =
           UserAvatars = avatars
     },
     []
+  | RemoteStateLoaded(Some state) ->
+    let remaining = TimeSpan.FromSeconds(float state.RemainingSeconds)
+    let withRemaining = { model with Remaining = remaining }
+
+    match state.IsRunning, model.State with
+    | true, (Idle | Paused) -> withRemaining, Cmd.ofMsg Start
+    | false, Running -> withRemaining, Cmd.ofMsg Pause
+    | _ -> withRemaining, []
+  | RemoteStateLoaded None -> model, []
+  | StateSaved -> model, []
+
+let subscriptions (model: Model) =
+  Firebase.Timer.subscription model.Persistence.Client model.Persistence.SessionId RemoteStateLoaded
 
 // ─── Key handling ────────────────────────────────────────────────────────────
 

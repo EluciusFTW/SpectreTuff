@@ -1,6 +1,8 @@
 module SessionList
 
 open System
+open Elmish
+open Firebase.Database
 open Spectre.Tui
 open Keymap
 open SpectreTuff.Widgets
@@ -10,6 +12,7 @@ type Model = {
   SelectedIndex: int
   Status: string
   User: string
+  Client: FirebaseClient
 }
 
 type Msg =
@@ -18,17 +21,19 @@ type Msg =
   | OpenSelected
   | CreateNew
   | DeleteSelected
-  | SessionsLoaded of (string * Session.Data) list
-  | SessionChanged of string * Session.Data
-  | SessionRemoved of string
-  | LoadError of string
+  | FirebaseEvent of Firebase.SessionEvent
+  | CreateCompleted of Result<string, string>
+  | DeleteCompleted of Result<unit, string>
 
-let init (user: string) () =
+type OutMsg = OpenSession of sessionId: string * data: Session.Data
+
+let init (client: FirebaseClient) (user: string) () =
   {
     Sessions = []
     SelectedIndex = 0
     Status = "loading…"
     User = user
+    Client = client
   },
   []
 
@@ -36,31 +41,45 @@ let private sortSessions sessions =
   sessions
   |> List.sortByDescending (fun (_, data: Session.Data) -> data.StartedAt)
 
-let update msg model =
+let update msg model : Model * Cmd<Msg> * OutMsg option =
   match msg with
   | Up ->
     {
       model with
           SelectedIndex = max 0 (model.SelectedIndex - 1)
     },
-    []
+    [],
+    None
   | Down ->
     {
       model with
           SelectedIndex = min (List.length model.Sessions - 1) (model.SelectedIndex + 1)
     },
-    []
-  | OpenSelected -> model, []
-  | CreateNew -> model, []
-  | DeleteSelected -> model, []
-  | SessionsLoaded sessions ->
+    [],
+    None
+  | OpenSelected ->
+    match model.Sessions.IsEmpty with
+    | true -> model, [], None
+    | false ->
+      let sessionId, sessionData = model.Sessions.[model.SelectedIndex]
+      model, [], Some(OpenSession(sessionId, sessionData))
+  | CreateNew ->
+    model, Cmd.OfAsync.perform (fun () -> Firebase.Sessions.create model.Client model.User) () CreateCompleted, None
+  | DeleteSelected ->
+    match model.Sessions.IsEmpty with
+    | true -> model, [], None
+    | false ->
+      let sessionId, _ = model.Sessions.[model.SelectedIndex]
+      model, Cmd.OfAsync.perform (fun () -> Firebase.Sessions.delete model.Client sessionId) () DeleteCompleted, None
+  | FirebaseEvent(Firebase.SessionsLoaded sessions) ->
     {
       model with
           Sessions = sortSessions sessions
           Status = "connected"
     },
-    []
-  | SessionChanged(id, data) when not (String.IsNullOrEmpty id) && not (isNull (data :> obj)) ->
+    [],
+    None
+  | FirebaseEvent(Firebase.SessionChanged(id, data)) when not (String.IsNullOrEmpty id) && not (isNull (data :> obj)) ->
     let sessions =
       model.Sessions
       |> List.filter (fun (k, _) -> k <> id)
@@ -70,20 +89,28 @@ let update msg model =
       model with
           Sessions = sortSessions sessions
     },
-    []
-  | SessionChanged _ -> model, []
-  | SessionRemoved id ->
+    [],
+    None
+  | FirebaseEvent(Firebase.SessionChanged _) -> model, [], None
+  | FirebaseEvent(Firebase.SessionRemoved id) ->
     {
       model with
           Sessions = model.Sessions |> List.filter (fun (k, _) -> k <> id)
     },
-    []
-  | LoadError e ->
+    [],
+    None
+  | FirebaseEvent(Firebase.ConnectionError e) ->
     {
       model with
           Status = sprintf "error: %s" e
     },
-    []
+    [],
+    None
+  | CreateCompleted _ -> model, [], None
+  | DeleteCompleted _ -> model, [], None
+
+let subscriptions (model: Model) =
+  Firebase.Sessions.subscription model.Client FirebaseEvent model
 
 let private bindings: KeyBinding<Model, Msg> list = [
   KeyBinding.createSpecial ConsoleKey.UpArrow "up" Up

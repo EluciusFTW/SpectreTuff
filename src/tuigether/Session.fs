@@ -14,20 +14,14 @@ type Data = {
 }
 
 [<CLIMutable>]
-type WidgetState = {
-  NotesFreetextContent: string
-  NotesListItems: Dictionary<string, string>
-  NotesNoteMode: string
-  TimerRemainingSeconds: int
-  TimerIsRunning: bool
-  ConnectedUsers: Dictionary<string, UserPresence>
+type NotesState = {
+  FreetextContent: string
+  ListItems: Dictionary<string, string>
+  NoteMode: string
 }
 
 [<CLIMutable>]
-type WidgetStateSave = {
-  NotesFreetextContent: string
-  NotesListItems: Dictionary<string, string>
-  NotesNoteMode: string
-  TimerRemainingSeconds: int
-  TimerIsRunning: bool
+type TimerState = {
+  RemainingSeconds: int
+  IsRunning: bool
 }

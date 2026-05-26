@@ -2,6 +2,7 @@ module Application
 
 open System
 open Elmish
+open Firebase.Database
 open Spectre.Tui
 open Spectre.Tui.App
 open SpectreTuff.Layout
@@ -23,16 +24,8 @@ type Model = {
 
 type Msg =
   | InputMsg of Input.Msg
-  | FirebaseMsg of Firebase.Msg
   | SessionListMsg of SessionList.Msg
   | SessionViewMsg of SessionView.Msg
-  | GlobalKeyMsg of GlobalKeys.Msg
-  | JoinCompleted of Result<unit, string>
-  | SetActiveDriverCompleted of Result<unit, string>
-  | SetUserMoodCompleted of Result<unit, string>
-  | LeaveCompleted of Result<unit, string>
-  | CreateCompleted of Result<string, string>
-  | DeleteCompleted of Result<unit, string>
   | ToggleLog
   | Tick
   | Exit
@@ -111,8 +104,8 @@ let private buildPanels (model: Model) : Panel list =
       }
     ]
 
-let init (user: string) () =
-  let listModel, listCmd = SessionList.init user ()
+let init (client: FirebaseClient) (user: string) () =
+  let listModel, listCmd = SessionList.init client user ()
 
   let avatarName = Avatar.resolveName ()
 
@@ -127,7 +120,34 @@ let init (user: string) () =
   },
   Cmd.map SessionListMsg listCmd
 
-let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
+let private subMap (wrap: 'a -> 'b) (subs: (string list * (Dispatch<'a> -> IDisposable)) list) =
+  subs
+  |> List.map (fun (key, start) -> key, (fun (dispatch: Dispatch<'b>) -> start (wrap >> dispatch)))
+
+let private handleSessionListOutMsg
+  (client: FirebaseClient)
+  (user: string)
+  (avatarName: string)
+  (model: Model)
+  (out: SessionList.OutMsg option)
+  : Model * Cmd<Msg> =
+  match out with
+  | Some(SessionList.OpenSession(sessionId, sessionData)) ->
+    let viewModel, viewCmd = SessionView.init client user avatarName sessionId sessionData
+
+    {
+      model with
+          Page = SessionViewPage viewModel
+    },
+    Cmd.map SessionViewMsg viewCmd
+  | None -> model, []
+
+let private handleSessionViewOutMsg (model: Model) (out: SessionView.OutMsg option) : Model * Cmd<Msg> =
+  match out with
+  | Some SessionView.LeaveSession -> { model with Page = SessionListPage }, []
+  | None -> model, []
+
+let update (client: FirebaseClient) (user: string) msg model =
   match msg with
   | InputMsg(Input.KeyPressed key) ->
     let panels = buildPanels model
@@ -145,122 +165,27 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
       | ConsoleKey.Q -> model, Cmd.ofMsg Exit
       | ConsoleKey.L -> model, Cmd.ofMsg ToggleLog
       | _ ->
-        match model.Page, GlobalKeys.handleKey key with
-        | SessionViewPage _, Some gMsg -> model, Cmd.ofMsg (GlobalKeyMsg gMsg)
-        | _ ->
-          focusedPanel
-          |> Option.bind (fun p -> p.HandleKey key)
-          |> Option.map (fun msg -> model, Cmd.ofMsg msg)
-          |> Option.defaultValue (model, [])
+        focusedPanel
+        |> Option.bind (fun p -> p.HandleKey key)
+        |> Option.map (fun msg -> model, Cmd.ofMsg msg)
+        |> Option.defaultValue (model, [])
 
-  | FirebaseMsg(Firebase.SessionsLoaded sessions) ->
-    model, Cmd.ofMsg (SessionListMsg(SessionList.SessionsLoaded sessions))
-  | FirebaseMsg(Firebase.SessionChanged(id, data)) ->
-    let sessionListCmd = Cmd.ofMsg (SessionListMsg(SessionList.SessionChanged(id, data)))
-
-    let sessionViewCmd =
-      match model.Page with
-      | SessionViewPage vm when vm.SessionId = id -> Cmd.ofMsg (SessionViewMsg(SessionView.UpdateSession data))
-      | _ -> Cmd.none
-
-    model, Cmd.batch [ sessionListCmd; sessionViewCmd ]
-  | FirebaseMsg(Firebase.SessionRemoved id) -> model, Cmd.ofMsg (SessionListMsg(SessionList.SessionRemoved id))
-  | FirebaseMsg(Firebase.ConnectionError e) -> model, Cmd.ofMsg (SessionListMsg(SessionList.LoadError e))
-  | FirebaseMsg(Firebase.WidgetStateChanged(sessionId, stateOption)) ->
-    match model.Page with
-    | SessionViewPage vm when vm.SessionId = sessionId ->
-      model, Cmd.ofMsg (SessionViewMsg(SessionView.WidgetStateLoaded stateOption))
-    | _ -> model, []
-
-  | FirebaseMsg(Firebase.ConnectedUserChanged(sessionId, user, presence)) ->
-    match model.Page with
-    | SessionViewPage vm when vm.SessionId = sessionId ->
-      model, Cmd.ofMsg (SessionViewMsg(SessionView.UpsertConnectedUser(user, presence)))
-    | _ -> model, []
-
-  | FirebaseMsg(Firebase.ConnectedUserRemoved(sessionId, user)) ->
-    match model.Page with
-    | SessionViewPage vm when vm.SessionId = sessionId ->
-      model, Cmd.ofMsg (SessionViewMsg(SessionView.RemoveConnectedUser user))
-    | _ -> model, []
-
-  | SessionListMsg SessionList.CreateNew ->
-    model, Cmd.OfAsync.perform (fun () -> Firebase.createSession client user) () CreateCompleted
-  | SessionListMsg SessionList.DeleteSelected when not model.SessionList.Sessions.IsEmpty ->
-    let sessionId, _ = model.SessionList.Sessions.[model.SessionList.SelectedIndex]
-    model, Cmd.OfAsync.perform (fun () -> Firebase.deleteSession client sessionId) () DeleteCompleted
-  | SessionListMsg SessionList.OpenSelected when not model.SessionList.Sessions.IsEmpty ->
-    let sessionId, sessionData = model.SessionList.Sessions.[model.SessionList.SelectedIndex]
-    let viewModel = SessionView.init user model.AvatarName sessionId sessionData
-
-    {
-      model with
-          Page = SessionViewPage viewModel
-    },
-    Cmd.OfAsync.perform (fun () -> Firebase.joinSession client sessionId user model.AvatarName) () JoinCompleted
-  | SessionListMsg SessionList.OpenSelected -> model, []
   | SessionListMsg lMsg ->
-    let listModel, listCmd = SessionList.update lMsg model.SessionList
-    { model with SessionList = listModel }, Cmd.map SessionListMsg listCmd
+    let listModel, listCmd, outMsg = SessionList.update lMsg model.SessionList
 
-  | SessionViewMsg SessionView.GoBack ->
-    let leaveCmd =
-      match model.Page with
-      | SessionViewPage viewModel ->
-        Cmd.OfAsync.perform (fun () -> Firebase.leaveSession client viewModel.SessionId user) () LeaveCompleted
-      | _ -> []
+    let modelAfterList = { model with SessionList = listModel }
+    let modelAfterOut, outCmd = handleSessionListOutMsg client user model.AvatarName modelAfterList outMsg
+    modelAfterOut, Cmd.batch [ Cmd.map SessionListMsg listCmd; outCmd ]
 
-    { model with Page = SessionListPage }, leaveCmd
-
-  | SessionViewMsg(SessionView.SetActiveDriver user) ->
+  | SessionViewMsg vMsg ->
     match model.Page with
-    | SessionViewPage vm ->
-      let driverOption =
-        match String.IsNullOrEmpty(user) with
-        | true -> None
-        | false -> Some user
-
-      let cmd =
-        Cmd.OfAsync.attempt (fun () -> Firebase.setActiveDriver client vm.SessionId driverOption) () (fun _ ->
-          SetActiveDriverCompleted(Ok()))
-
-      Some(model, cmd)
-    | _ -> None
-    |> Option.defaultValue (model, [])
-
-  | SetActiveDriverCompleted _ -> model, []
-
-  | SessionViewMsg(SessionView.SetUserMood mood) ->
-    match model.Page with
-    | SessionViewPage vm ->
-      let moodName = Avatar.moodToString mood
-
-      let cmd =
-        Cmd.OfAsync.attempt
-          (fun () -> Firebase.setUserPresence client vm.SessionId model.User model.AvatarName moodName)
-          ()
-          (fun _ -> SetUserMoodCompleted(Ok()))
-
-      Some(model, cmd)
-    | _ -> None
-    |> Option.defaultValue (model, [])
-
-  | SetUserMoodCompleted _ -> model, []
-
-  | JoinCompleted result ->
-    match model.Page, result with
-    | SessionViewPage viewModel, Ok() ->
-      model,
-      Cmd.batch [
-        Cmd.ofMsg (SessionViewMsg(SessionView.JoinCompleted result))
-        Cmd.OfAsync.perform (fun () -> Firebase.loadWidgetState client viewModel.SessionId) () (fun state ->
-          SessionViewMsg(SessionView.WidgetStateLoaded state))
-      ]
-    | SessionViewPage _, _ -> model, Cmd.ofMsg (SessionViewMsg(SessionView.JoinCompleted result))
+    | SessionViewPage viewModel ->
+      let m, sessionCmd, outMsg = SessionView.update vMsg viewModel
+      let modelAfterView = { model with Page = SessionViewPage m }
+      let modelAfterOut, outCmd = handleSessionViewOutMsg modelAfterView outMsg
+      modelAfterOut, Cmd.batch [ Cmd.map SessionViewMsg sessionCmd; outCmd ]
     | _ -> model, []
-  | LeaveCompleted _ -> model, []
-  | CreateCompleted _ -> model, []
-  | DeleteCompleted _ -> model, []
+
   | ToggleLog ->
     {
       model with
@@ -268,38 +193,16 @@ let update (client: Firebase.Database.FirebaseClient) (user: string) msg model =
     },
     []
 
-  | SessionViewMsg vMsg ->
-    match model.Page with
-    | SessionViewPage viewModel ->
-      let m, sessionCmd = SessionView.update vMsg viewModel
-
-      let saveCmd =
-        match SessionView.shouldPersist vMsg m with
-        | true ->
-          Cmd.OfAsync.perform
-            (fun () -> Firebase.saveWidgetState client m.SessionId (SessionView.toWidgetState m))
-            ()
-            (fun _ -> SessionViewMsg SessionView.StateSaved)
-        | false -> []
-
-      { model with Page = SessionViewPage m }, Cmd.batch [ Cmd.map SessionViewMsg sessionCmd; saveCmd ]
-    | _ -> model, []
-
-  | GlobalKeyMsg gMsg ->
-    let timerMsg =
-      match gMsg with
-      | GlobalKeys.PauseDrive -> Timer.Pause
-      | GlobalKeys.ResumeDrive -> Timer.Start
-      | GlobalKeys.Teleport -> Timer.SkipTimer
-      | GlobalKeys.NextDrive -> Timer.SwitchDriver
-
-    model, Cmd.ofMsg (SessionViewMsg(SessionView.TimerMsg timerMsg))
-
   | Tick -> model, []
 
   | Exit ->
     exitEvent.Set()
     model, []
+
+let subscriptions (model: Model) =
+  match model.Page with
+  | SessionListPage -> SessionList.subscriptions model.SessionList |> subMap SessionListMsg
+  | SessionViewPage vm -> SessionView.subscriptions vm |> subMap SessionViewMsg
 
 type AppView(model: Model) =
   interface IWidget with
@@ -336,13 +239,19 @@ type AppView(model: Model) =
 
       let helpMaps =
         match model.Page with
-        | SessionViewPage _ -> [ GlobalKeys.keyMap; globalKeyMap ]
+        | SessionViewPage _ -> SessionView.helpKeyMaps @ [ globalKeyMap ]
         | _ -> [ globalKeyMap ]
 
       ctx.Render(help helpMaps |> leftAligned, slotPort "help")
 
+// Spectre.Tui's AnsiTerminal keeps mutable buffer/state shared across writes
+// and is not thread-safe. Subscription callbacks (Firebase observables, async
+// completions) can dispatch from thread-pool threads, so view may be invoked
+// concurrently. Serialize draws here.
+let private renderLock = obj ()
+
 let view (renderer: Renderer) (model: Model) _dispatch =
-  renderer.Draw(fun ctx _ -> ctx.Render(AppView model))
+  lock renderLock (fun () -> renderer.Draw(fun ctx _ -> ctx.Render(AppView model)))
 
 let traceToLog msg (model: Model) _ =
   match msg with
