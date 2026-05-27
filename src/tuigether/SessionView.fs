@@ -47,7 +47,7 @@ let init (client: FirebaseClient) (user: string) (avatarName: string) (sessionId
     Focus = 1
     Notes = Notes.init client sessionId user
     TodoList = TodoList.init client sessionId
-    SessionInfo = SessionInfo.init sessionId sessionData "joining…"
+    SessionInfo = SessionInfo.init client sessionId user sessionData
     Journey = Journey.init client sessionId user avatarName sessionData
   }
 
@@ -70,7 +70,14 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
       | true -> Cmd.ofMsg (NotesMsg Notes.ExitInsert)
       | false -> Cmd.none
 
-    model, Cmd.batch [ clearDriverCmd; exitNotesInsertCmd ], Some(LeaveSession(model.SessionId, model.User, wasStarted))
+    let exitGoalInsertCmd =
+      match SessionInfo.isHoldingLock model.SessionInfo with
+      | true -> Cmd.ofMsg (SessionInfoMsg SessionInfo.ExitInsert)
+      | false -> Cmd.none
+
+    model,
+    Cmd.batch [ clearDriverCmd; exitNotesInsertCmd; exitGoalInsertCmd ],
+    Some(LeaveSession(model.SessionId, model.User, wasStarted))
   | JoinCompleted(Ok()) ->
     let startedCmd =
       match Session.Status.fromString model.SessionData.Status with
@@ -81,23 +88,11 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
           (fun () -> StatusWritten)
       | _ -> Cmd.none
 
-    {
-      model with
-          Status = "connected"
-          SessionInfo = SessionInfo.init model.SessionId model.SessionData "connected"
-    },
-    startedCmd,
-    None
+    { model with Status = "connected" }, startedCmd, None
   | JoinCompleted(Error e) ->
     let status = sprintf "join error: %s" e
 
-    {
-      model with
-          Status = status
-          SessionInfo = SessionInfo.init model.SessionId model.SessionData status
-    },
-    [],
-    None
+    { model with Status = status }, [], None
   | StatusWritten -> model, [], None
   | FocusPanel n -> { model with Focus = n }, [], None
   | NotesMsg nMsg ->
@@ -114,13 +109,15 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
     { model with Journey = m }, Cmd.map JourneyMsg cmd, None
   | UpdateSession(Some data) ->
     let journeyM, journeyCmd = Journey.update (Journey.UpdateSession data) model.Journey
+    let infoM, infoCmd = SessionInfo.update (SessionInfo.SessionDataUpdated data) model.SessionInfo
 
     {
       model with
           Journey = journeyM
+          SessionInfo = infoM
           SessionData = data
     },
-    Cmd.map JourneyMsg journeyCmd,
+    Cmd.batch [ Cmd.map JourneyMsg journeyCmd; Cmd.map SessionInfoMsg infoCmd ],
     None
   | UpdateSession None -> model, [], None
 
@@ -163,8 +160,9 @@ let private tryFocusNumber (key: ConsoleKeyInfo) =
 
 let capturesInput (model: Model) =
   match model.Focus with
-  | 1 -> Notes.capturesInput model.Notes
-  | 2 -> TodoList.capturesInput model.TodoList
+  | 1 -> SessionInfo.capturesInput model.SessionInfo
+  | 2 -> Notes.capturesInput model.Notes
+  | 3 -> TodoList.capturesInput model.TodoList
   | _ -> false
 
 let private globalKeyToMsg (gMsg: GlobalKeys.Msg) : Msg =
@@ -178,8 +176,9 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
   match capturesInput model with
   | true ->
     match model.Focus with
-    | 1 -> Notes.handleKey key model.Notes |> Option.map NotesMsg
-    | 2 -> TodoList.handleKey key model.TodoList |> Option.map TodoListMsg
+    | 1 -> SessionInfo.handleKey key model.SessionInfo |> Option.map SessionInfoMsg
+    | 2 -> Notes.handleKey key model.Notes |> Option.map NotesMsg
+    | 3 -> TodoList.handleKey key model.TodoList |> Option.map TodoListMsg
     | _ -> None
   | false ->
     GlobalKeys.handleKey key
@@ -188,9 +187,9 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
     |> Option.orElseWith (fun () -> KeyBinding.handleKey outerBindings key model)
     |> Option.orElseWith (fun () ->
       match model.Focus with
-      | 1 -> Notes.handleKey key model.Notes |> Option.map NotesMsg
-      | 2 -> TodoList.handleKey key model.TodoList |> Option.map TodoListMsg
-      | 4 -> SessionInfo.handleKey key model.SessionInfo |> Option.map SessionInfoMsg
+      | 1 -> SessionInfo.handleKey key model.SessionInfo |> Option.map SessionInfoMsg
+      | 2 -> Notes.handleKey key model.Notes |> Option.map NotesMsg
+      | 3 -> TodoList.handleKey key model.TodoList |> Option.map TodoListMsg
       | _ -> None)
     |> Option.orElseWith (fun () -> Journey.handleKey key model.Journey |> Option.map JourneyMsg)
 
@@ -227,9 +226,9 @@ let private topRowLayout =
 let private workAreaLayout =
   layout "work-area"
   |> splitHorizontally [|
-    layout "top" |> withRatio 2
+    layout "info" |> withFixedSize (Some 6)
+    layout "middle" |> withRatio 1
     layout "journey" |> withFixedSize (Some 6)
-    layout "bottom" |> withRatio 1
   |]
 
 let widget (model: Model) : IWidget =
@@ -242,6 +241,24 @@ let widget (model: Model) : IWidget =
           | true -> Focused
           | false -> Unfocused
 
+        let sessionInfoFocusState =
+          match model.Focus, SessionInfo.capturesInput model.SessionInfo with
+          | 1, true -> Capturing
+          | 1, false -> Focused
+          | _ -> Unfocused
+
+        ctx.Render(
+          focusableBox
+            model.SessionData.Title
+            1
+            sessionInfoFocusState
+            (withPanelKeys
+              (SessionInfo.widget model.SessionInfo)
+              (SessionInfo.keyMap model.SessionInfo)
+              (model.Focus = 1)),
+          workPort "info"
+        )
+
         ctx.Render(
           { new IWidget with
               member _.Render(ctx) =
@@ -249,49 +266,37 @@ let widget (model: Model) : IWidget =
 
                 let notesFocusState =
                   match model.Focus, Notes.capturesInput model.Notes with
-                  | 1, true -> Capturing
-                  | 1, false -> Focused
+                  | 2, true -> Capturing
+                  | 2, false -> Focused
                   | _ -> Unfocused
 
                 ctx.Render(
                   focusableBox
                     "Notes"
-                    1
+                    2
                     notesFocusState
-                    (withPanelKeys (Notes.widget model.Notes) (Notes.keyMap model.Notes) (model.Focus = 1)),
+                    (withPanelKeys (Notes.widget model.Notes) (Notes.keyMap model.Notes) (model.Focus = 2)),
                   topPort "notes"
                 )
 
                 ctx.Render(
                   focusableBox
                     "Todo"
-                    2
-                    (focusStateFor 2)
-                    (withPanelKeys (TodoList.widget model.TodoList) (TodoList.keyMap model.TodoList) (model.Focus = 2)),
+                    3
+                    (focusStateFor 3)
+                    (withPanelKeys (TodoList.widget model.TodoList) (TodoList.keyMap model.TodoList) (model.Focus = 3)),
                   topPort "todo"
                 )
           },
-          workPort "top"
+          workPort "middle"
         )
 
         ctx.Render(
           focusableBox
             "Journey"
-            3
-            (focusStateFor 3)
-            (withPanelKeys (Journey.widget model.Journey) emptyKeyMap (model.Focus = 3)),
-          workPort "journey"
-        )
-
-        ctx.Render(
-          focusableBox
-            "Session Info"
             4
             (focusStateFor 4)
-            (withPanelKeys
-              (SessionInfo.widget model.SessionInfo)
-              (SessionInfo.keyMap model.SessionInfo)
-              (model.Focus = 4)),
-          workPort "bottom"
+            (withPanelKeys (Journey.widget model.Journey) emptyKeyMap (model.Focus = 4)),
+          workPort "journey"
         )
   }

@@ -63,14 +63,14 @@ let capturesInput (model: Model) =
   | Naming _ -> true
   | Browsing -> false
 
-let private isDuplicateGoal (model: Model) (goal: string) =
+let private isDuplicateTitle (model: Model) (title: string) =
   model.Sessions
   |> List.exists (fun (_, data) ->
     match data :> obj with
     | null -> false
     | _ ->
-      not (isNull data.Goal)
-      && String.Equals(data.Goal.Trim(), goal, StringComparison.OrdinalIgnoreCase))
+      not (isNull data.Title)
+      && String.Equals(data.Title.Trim(), title, StringComparison.OrdinalIgnoreCase))
 
 let update msg model : Model * Cmd<Msg> * OutMsg option =
   match msg with
@@ -139,7 +139,7 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
         },
         [],
         None
-      | _ when isDuplicateGoal model trimmed ->
+      | _ when isDuplicateTitle model trimmed ->
         {
           model with
               InputMode = Naming(text, Some "Title already used")
@@ -330,7 +330,7 @@ let widget (model: Model) : IWidget =
               |> Option.defaultValue Set.empty
               |> formatConnected
 
-            Some(StatusListItem(sprintf "%-40s  %s  %-8s  %s" data.Goal startedAt duration connected, status)))
+            Some(StatusListItem(sprintf "%-40s  %s  %-8s  %s" data.Title startedAt duration connected, status)))
 
       list items
       |> selectedIndex model.SelectedIndex

@@ -143,16 +143,19 @@ module Sessions =
     [ "firebase-sessions" ], fun dispatch -> subscribeSessions client (wrap >> dispatch)
   ]
 
-  let create (client: FirebaseClient) (user: string) (goal: string) : Async<Result<string, string>> =
+  let create (client: FirebaseClient) (user: string) (title: string) : Async<Result<string, string>> =
     async {
       try
         let data = {
-          Session.Data.Goal = goal
+          Session.Data.Title = title
+          Session.Data.Goal = ""
           Session.Data.StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
           Session.Data.WorkStartedAt = 0L
           Session.Data.Creator = user
           Session.Data.ActiveDriver = null
           Session.Data.Status = Session.Status.toString Session.Status.Created
+          Session.Data.GoalLockOwner = null
+          Session.Data.GoalLockedAt = 0L
         }
 
         let! result = client.Child(sessionsPath).PostAsync(data) |> Async.AwaitTask
@@ -202,6 +205,44 @@ module Sessions =
         do!
           client.Child(sessionsPath).Child(sessionId).Child("ActiveDriver").DeleteAsync()
           |> Async.AwaitTask
+    }
+
+  let saveGoal (client: FirebaseClient) (sessionId: string) (text: string) : Async<unit> =
+    async {
+      try
+        do!
+          client.Child(sessionsPath).Child(sessionId).Child("Goal").PutAsync(text :> obj)
+          |> Async.AwaitTask
+      with _ ->
+        ()
+    }
+
+  let saveGoalLock (client: FirebaseClient) (sessionId: string) (owner: string) (lockedAt: int64) : Async<unit> =
+    async {
+      try
+        do!
+          client.Child(sessionsPath).Child(sessionId).Child("GoalLockOwner").PutAsync(owner :> obj)
+          |> Async.AwaitTask
+
+        do!
+          client.Child(sessionsPath).Child(sessionId).Child("GoalLockedAt").PutAsync(lockedAt :> obj)
+          |> Async.AwaitTask
+      with _ ->
+        ()
+    }
+
+  let releaseGoalLock (client: FirebaseClient) (sessionId: string) : Async<unit> =
+    async {
+      try
+        do!
+          client.Child(sessionsPath).Child(sessionId).Child("GoalLockOwner").DeleteAsync()
+          |> Async.AwaitTask
+
+        do!
+          client.Child(sessionsPath).Child(sessionId).Child("GoalLockedAt").DeleteAsync()
+          |> Async.AwaitTask
+      with _ ->
+        ()
     }
 
   let private sessionDataPath (client: FirebaseClient) (sessionId: string) =

@@ -26,12 +26,15 @@ module Status =
 
 [<CLIMutable>]
 type Data = {
+  Title: string
   Goal: string
   StartedAt: int64
   WorkStartedAt: int64
   Creator: string
   ActiveDriver: string
   Status: string
+  GoalLockOwner: string
+  GoalLockedAt: int64
 }
 
 [<CLIMutable>]
