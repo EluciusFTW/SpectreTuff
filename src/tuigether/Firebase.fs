@@ -149,6 +149,7 @@ module Sessions =
         let data = {
           Session.Data.Goal = goal
           Session.Data.StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+          Session.Data.WorkStartedAt = 0L
           Session.Data.Creator = user
           Session.Data.ActiveDriver = null
           Session.Data.Status = Session.Status.toString Session.Status.Created
@@ -495,6 +496,87 @@ module Notes =
     [ "notes-state"; sessionId ],
     fun dispatch ->
       subscribeReload (notesPath client sessionId) (fun () -> load client sessionId) (wrap >> dispatch) (fun _ -> ())
+  ]
+
+// ─── Todo ────────────────────────────────────────────────────────────────────
+
+module Todo =
+
+  let private todoPath (client: FirebaseClient) (sessionId: string) =
+    client.Child(sessionsPath).Child(sessionId).Child("widgetState").Child("todo")
+
+  let addItem (client: FirebaseClient) (sessionId: string) (itemId: string) (text: string) : Async<unit> =
+    async {
+      try
+        do!
+          (todoPath client sessionId).Child("Items").Child(itemId).Child("Text").PutAsync(text :> obj)
+          |> Async.AwaitTask
+
+        do!
+          (todoPath client sessionId).Child("Items").Child(itemId).Child("Completed").PutAsync(false :> obj)
+          |> Async.AwaitTask
+      with _ ->
+        ()
+    }
+
+  let setItem
+    (client: FirebaseClient)
+    (sessionId: string)
+    (itemId: string)
+    (text: string)
+    (completed: bool)
+    : Async<unit> =
+    async {
+      try
+        do!
+          (todoPath client sessionId).Child("Items").Child(itemId).Child("Text").PutAsync(text :> obj)
+          |> Async.AwaitTask
+
+        do!
+          (todoPath client sessionId).Child("Items").Child(itemId).Child("Completed").PutAsync(completed :> obj)
+          |> Async.AwaitTask
+      with _ ->
+        ()
+    }
+
+  let setCompleted (client: FirebaseClient) (sessionId: string) (itemId: string) (completed: bool) : Async<unit> =
+    async {
+      try
+        do!
+          (todoPath client sessionId).Child("Items").Child(itemId).Child("Completed").PutAsync(completed :> obj)
+          |> Async.AwaitTask
+      with _ ->
+        ()
+    }
+
+  let deleteItem (client: FirebaseClient) (sessionId: string) (itemId: string) : Async<unit> =
+    async {
+      try
+        do!
+          (todoPath client sessionId).Child("Items").Child(itemId).DeleteAsync()
+          |> Async.AwaitTask
+      with _ ->
+        ()
+    }
+
+  let load (client: FirebaseClient) (sessionId: string) : Async<Session.TodoState option> =
+    async {
+      try
+        let! items =
+          (todoPath client sessionId)
+            .Child("Items")
+            .OnceSingleAsync<System.Collections.Generic.Dictionary<string, Session.TodoItemState>>()
+          |> Async.AwaitTask
+
+        return Some { Items = items }
+      with _ ->
+        return None
+    }
+
+  let subscription (client: FirebaseClient) (sessionId: string) (wrap: Session.TodoState option -> 'appMsg) = [
+    [ "todo-state"; sessionId ],
+    fun dispatch ->
+      subscribeReload (todoPath client sessionId) (fun () -> load client sessionId) (wrap >> dispatch) (fun _ -> ())
   ]
 
 // ─── Timer ───────────────────────────────────────────────────────────────────

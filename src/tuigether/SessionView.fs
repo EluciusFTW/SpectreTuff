@@ -48,7 +48,7 @@ let init (client: FirebaseClient) (user: string) (avatarName: string) (sessionId
     Status = "joining…"
     Focus = 1
     Notes = Notes.init client sessionId user
-    TodoList = TodoList.init ()
+    TodoList = TodoList.init client sessionId
     Timer = Timer.init client sessionId
     SessionInfo = SessionInfo.init sessionId sessionData "joining…"
     Avatar = Avatar.init client sessionId user avatarName sessionData
@@ -172,6 +172,7 @@ let private subMap (wrap: 'a -> 'b) (subs: (string list * (Dispatch<'a> -> IDisp
 
 let subscriptions (model: Model) =
   (Notes.subscriptions model.Notes |> subMap NotesMsg)
+  @ (TodoList.subscriptions model.TodoList |> subMap TodoListMsg)
   @ (Timer.subscriptions model.Timer |> subMap TimerMsg)
   @ (Avatar.subscriptions model.Avatar |> subMap AvatarMsg)
   @ Firebase.Sessions.dataSubscription model.Client model.SessionId UpdateSession
@@ -204,7 +205,10 @@ let private tryFocusNumber (key: ConsoleKeyInfo) =
   | _ -> None
 
 let capturesInput (model: Model) =
-  model.Focus = 1 && Notes.capturesInput model.Notes
+  match model.Focus with
+  | 1 -> Notes.capturesInput model.Notes
+  | 2 -> TodoList.capturesInput model.TodoList
+  | _ -> false
 
 let private globalKeyToMsg (gMsg: GlobalKeys.Msg) : Msg =
   match gMsg with
@@ -215,7 +219,11 @@ let private globalKeyToMsg (gMsg: GlobalKeys.Msg) : Msg =
 
 let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
   match capturesInput model with
-  | true -> Notes.handleKey key model.Notes |> Option.map NotesMsg
+  | true ->
+    match model.Focus with
+    | 1 -> Notes.handleKey key model.Notes |> Option.map NotesMsg
+    | 2 -> TodoList.handleKey key model.TodoList |> Option.map TodoListMsg
+    | _ -> None
   | false ->
     GlobalKeys.handleKey key
     |> Option.map globalKeyToMsg

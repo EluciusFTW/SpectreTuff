@@ -48,3 +48,11 @@ type TimerState = {
   RemainingSeconds: int
   IsRunning: bool
 }
+
+[<CLIMutable>]
+type TodoItemState = { Text: string; Completed: bool }
+
+[<CLIMutable>]
+type TodoState = {
+  Items: Dictionary<string, TodoItemState>
+}
