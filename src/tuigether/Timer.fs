@@ -346,12 +346,10 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
 let private formatTime (t: TimeSpan) =
   sprintf "%02d:%02d" (int t.TotalMinutes) t.Seconds
 
-// Road grid: N columns × 4 rows (N derived from viewport width at render time)
+// Road grid: N columns × 2 rows (N derived from viewport width at render time)
 //
-// R0:  .  .  .  [car roof at carPos]  .  .  .   sky row
-// R1:  ═  ═  ═  [wnd][body][wnd]  ─  ─  ─  ─   road + car body
-// R2:  ═  ═  ═  [whl][base][whl]  ─  ─  ─  ─   road + car wheels
-// R3:  .  .  .  .  .  .  .  .  .  .  .  .       empty / finish row
+// R0:  .  .  .  .  [head]  .  .  .  .  .  .   sky row + driver head (car middle)
+// R1:  ═  ═  ═  [whl][base][whl]  ─  ─  ─  ─   road + car wheels
 //
 // carPos ∈ [0, roadWidth-3]:  car occupies cols carPos..carPos+2
 // cols < carPos  → filled road     cols > carPos+2 → unfilled road
@@ -576,37 +574,25 @@ let widget (model: Model) : IWidget =
             let inCar = col >= carPos && col < carPos + carWidth
             let filled = col < carPos
             let finish = isFinish && col = roadWidth - 1
+            let isHead = col - carPos = 1
+
+            let roadSurface =
+              match filled with
+              | true -> styledBlock filledColor
+              | false -> styledBlock Color.Grey23
 
             match row with
             | 0 ->
-              if inCar then styledBlock Color.Silver
-              elif finish then styledBlock Color.White
-              else emptyBlock
-            | 1 ->
-              if finish then
-                styledBlock Color.White
-              elif inCar then
-                match col - carPos with
-                | 0 -> styledBlock Color.Grey15
-                | 1 -> styledBlock (driverColor |> Option.defaultValue Color.Silver)
-                | _ -> styledBlock Color.Grey15
-              elif filled then
-                styledBlock filledColor
-              else
-                styledBlock Color.Grey23
-            | 2 ->
-              if finish then
-                styledBlock Color.White
-              elif inCar then
-                match col - carPos with
-                | 0
-                | 2 -> styledBlock Color.Grey3
-                | _ -> styledBlock Color.Grey
-              elif filled then
-                styledBlock filledColor
-              else
-                styledBlock Color.Grey23
-            | _ -> emptyBlock
+              match inCar && isHead, finish with
+              | true, _ -> styledBlock (driverColor |> Option.defaultValue Color.Silver)
+              | false, true -> styledBlock Color.White
+              | false, false -> emptyBlock
+            | _ ->
+              match finish, inCar, isHead with
+              | true, _, _ -> styledBlock Color.White
+              | false, true, true -> styledBlock Color.Grey
+              | false, true, false -> styledBlock Color.Grey3
+              | false, false, _ -> roadSurface
 
           let stateStr =
             match model.State with
@@ -615,16 +601,11 @@ let widget (model: Model) : IWidget =
             | Flashing _ -> "!!!"
             | _ -> "■"
 
-          let driverLabel = model.ActiveDriver |> Option.defaultValue "(no driver)"
-
           let roadLines = [
-            for row in 0..3 -> Text.line [ for col in 0 .. (roadWidth - 1) -> roadCell row col ]
+            for row in 0..1 -> Text.line [ for col in 0 .. (roadWidth - 1) -> roadCell row col ]
           ]
 
-          let infoLine =
-            Text.line [
-              Text.span (sprintf "  %s %s  %s" stateStr (formatTime model.Remaining) driverLabel)
-            ]
+          let infoLine = Text.line [ Text.span (sprintf "  %s %s" stateStr (formatTime model.Remaining)) ]
 
           context.Render(paragraph (roadLines @ [ infoLine ]), context.Viewport)
   }

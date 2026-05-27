@@ -19,9 +19,8 @@ type Model = {
   Focus: int
   Notes: Notes.Model
   TodoList: TodoList.Model
-  Timer: Timer.Model
   SessionInfo: SessionInfo.Model
-  Avatar: Avatar.Model
+  Journey: Journey.Model
 }
 
 type Msg =
@@ -31,9 +30,8 @@ type Msg =
   | FocusPanel of int
   | NotesMsg of Notes.Msg
   | TodoListMsg of TodoList.Msg
-  | TimerMsg of Timer.Msg
   | SessionInfoMsg of SessionInfo.Msg
-  | AvatarMsg of Avatar.Msg
+  | JourneyMsg of Journey.Msg
   | UpdateSession of Session.Data option
 
 type OutMsg = LeaveSession of sessionId: string * user: string * wasStarted: bool
@@ -49,9 +47,8 @@ let init (client: FirebaseClient) (user: string) (avatarName: string) (sessionId
     Focus = 1
     Notes = Notes.init client sessionId user
     TodoList = TodoList.init client sessionId
-    Timer = Timer.init client sessionId
     SessionInfo = SessionInfo.init sessionId sessionData "joining…"
-    Avatar = Avatar.init client sessionId user avatarName sessionData
+    Journey = Journey.init client sessionId user avatarName sessionData
   }
 
   let joinCmd = Cmd.OfAsync.perform (fun () -> Firebase.Users.join client sessionId user avatarName) () JoinCompleted
@@ -64,8 +61,8 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
     let wasStarted = Session.Status.fromString model.SessionData.Status = Session.Status.Started
 
     let clearDriverCmd =
-      match model.Avatar.ActiveDriver with
-      | Some driver when driver.Name = model.User -> Cmd.ofMsg (AvatarMsg(Avatar.SetActiveDriver None))
+      match model.Journey.ActiveDriver with
+      | Some driver when driver.Name = model.User -> Cmd.ofMsg (JourneyMsg(Journey.SetActiveDriver None))
       | _ -> Cmd.none
 
     let exitNotesInsertCmd =
@@ -109,60 +106,21 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
   | TodoListMsg tMsg ->
     let m, cmd = TodoList.update tMsg model.TodoList
     { model with TodoList = m }, Cmd.map TodoListMsg cmd, None
-  | TimerMsg Timer.SwitchDriver ->
-    let users = model.Avatar.Users
-
-    let nextUser =
-      match model.Avatar.ActiveDriver with
-      | None -> users |> List.tryHead
-      | Some current ->
-        let idx =
-          users
-          |> List.tryFindIndex (fun u -> u.Name = current.Name)
-          |> Option.defaultValue -1
-
-        Some users.[(idx + 1) % users.Length]
-
-    let nextDriverName = nextUser |> Option.map (fun u -> u.Name)
-    let connectedNames = users |> List.map (fun u -> u.Name)
-    let avatarMap = users |> List.map (fun u -> u.Name, u.Creature) |> Map.ofList
-
-    let driverCmd = Cmd.ofMsg (AvatarMsg(Avatar.SetActiveDriver nextDriverName))
-
-    {
-      model with
-          Avatar = {
-            model.Avatar with
-                ActiveDriver = nextUser
-          }
-          Timer = Timer.resetForDriver model.Timer nextDriverName connectedNames avatarMap
-    },
-    Cmd.batch [ driverCmd; Cmd.ofMsg (TimerMsg Timer.Start) ],
-    None
-  | TimerMsg tMsg ->
-    let m, cmd = Timer.update tMsg model.Timer
-    { model with Timer = m }, Cmd.map TimerMsg cmd, None
   | SessionInfoMsg sMsg ->
     let m, cmd = SessionInfo.update sMsg model.SessionInfo
     { model with SessionInfo = m }, Cmd.map SessionInfoMsg cmd, None
-  | AvatarMsg aMsg ->
-    let m, cmd = Avatar.update aMsg model.Avatar
-    { model with Avatar = m }, Cmd.map AvatarMsg cmd, None
+  | JourneyMsg jMsg ->
+    let m, cmd = Journey.update jMsg model.Journey
+    { model with Journey = m }, Cmd.map JourneyMsg cmd, None
   | UpdateSession(Some data) ->
-    let avatarM, avatarCmd = Avatar.update (Avatar.UpdateSession data) model.Avatar
-    let connectedUsers = avatarM.Users |> List.map (fun u -> u.Name)
-    let activeDriver = avatarM.ActiveDriver |> Option.map (fun u -> u.Name)
-    let userAvatarMap = avatarM.Users |> List.map (fun u -> u.Name, u.Creature) |> Map.ofList
-
-    let timerM, timerCmd = Timer.update (Timer.SessionUpdated(connectedUsers, activeDriver, userAvatarMap)) model.Timer
+    let journeyM, journeyCmd = Journey.update (Journey.UpdateSession data) model.Journey
 
     {
       model with
-          Avatar = avatarM
-          Timer = timerM
+          Journey = journeyM
           SessionData = data
     },
-    Cmd.batch [ Cmd.map AvatarMsg avatarCmd; Cmd.map TimerMsg timerCmd ],
+    Cmd.map JourneyMsg journeyCmd,
     None
   | UpdateSession None -> model, [], None
 
@@ -173,8 +131,7 @@ let private subMap (wrap: 'a -> 'b) (subs: (string list * (Dispatch<'a> -> IDisp
 let subscriptions (model: Model) =
   (Notes.subscriptions model.Notes |> subMap NotesMsg)
   @ (TodoList.subscriptions model.TodoList |> subMap TodoListMsg)
-  @ (Timer.subscriptions model.Timer |> subMap TimerMsg)
-  @ (Avatar.subscriptions model.Avatar |> subMap AvatarMsg)
+  @ (Journey.subscriptions model.Journey |> subMap JourneyMsg)
   @ Firebase.Sessions.dataSubscription model.Client model.SessionId UpdateSession
 
 let private outerBindings: KeyBinding<Model, Msg> list = [
@@ -188,11 +145,11 @@ let private outerBindings: KeyBinding<Model, Msg> list = [
   })
   KeyBinding.dynamic (SpecialKey ConsoleKey.Tab) (fun model -> {
     Description = "next panel"
-    Message = Some(FocusPanel(model.Focus % 5 + 1))
+    Message = Some(FocusPanel(model.Focus % 4 + 1))
   })
 ]
 
-let private panelCount = 5
+let private panelCount = 4
 
 let private tryFocusNumber (key: ConsoleKeyInfo) =
   match key.KeyChar with
@@ -212,10 +169,10 @@ let capturesInput (model: Model) =
 
 let private globalKeyToMsg (gMsg: GlobalKeys.Msg) : Msg =
   match gMsg with
-  | GlobalKeys.PauseDrive -> TimerMsg Timer.Pause
-  | GlobalKeys.ResumeDrive -> TimerMsg Timer.Start
-  | GlobalKeys.Teleport -> TimerMsg Timer.SkipTimer
-  | GlobalKeys.NextDrive -> TimerMsg Timer.SwitchDriver
+  | GlobalKeys.PauseDrive -> JourneyMsg(Journey.TimerMsg Timer.Pause)
+  | GlobalKeys.ResumeDrive -> JourneyMsg(Journey.TimerMsg Timer.Start)
+  | GlobalKeys.Teleport -> JourneyMsg(Journey.TimerMsg Timer.SkipTimer)
+  | GlobalKeys.NextDrive -> JourneyMsg Journey.SwitchDriver
 
 let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
   match capturesInput model with
@@ -234,9 +191,8 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
       | 1 -> Notes.handleKey key model.Notes |> Option.map NotesMsg
       | 2 -> TodoList.handleKey key model.TodoList |> Option.map TodoListMsg
       | 4 -> SessionInfo.handleKey key model.SessionInfo |> Option.map SessionInfoMsg
-      | 5 -> Avatar.handleKey key model.Avatar |> Option.map AvatarMsg
       | _ -> None)
-    |> Option.orElseWith (fun () -> Timer.handleKey key model.Timer |> Option.map TimerMsg)
+    |> Option.orElseWith (fun () -> Journey.handleKey key model.Journey |> Option.map JourneyMsg)
 
 let keyMap (model: Model) : Spectre.Tui.App.IKeyMap =
   KeyBinding.toKeyMap outerBindings model
@@ -272,21 +228,14 @@ let private workAreaLayout =
   layout "work-area"
   |> splitHorizontally [|
     layout "top" |> withRatio 2
-    layout "timer" |> withRatio 1
+    layout "journey" |> withFixedSize (Some 6)
     layout "bottom" |> withRatio 1
-  |]
-
-let private sessionLayout =
-  layout "session"
-  |> splitVertically [|
-    layout "work-area" |> withRatio 1
-    layout "users-column" |> withFixedSize (Some 28)
   |]
 
 let widget (model: Model) : IWidget =
   { new IWidget with
       member _.Render(ctx: RenderContext) =
-        let slotPort = getPort ctx.Viewport sessionLayout
+        let workPort = getPort ctx.Viewport workAreaLayout
 
         let focusStateFor n =
           match model.Focus = n with
@@ -296,73 +245,53 @@ let widget (model: Model) : IWidget =
         ctx.Render(
           { new IWidget with
               member _.Render(ctx) =
-                let workPort = getPort ctx.Viewport workAreaLayout
+                let topPort = getPort ctx.Viewport topRowLayout
+
+                let notesFocusState =
+                  match model.Focus, Notes.capturesInput model.Notes with
+                  | 1, true -> Capturing
+                  | 1, false -> Focused
+                  | _ -> Unfocused
 
                 ctx.Render(
-                  { new IWidget with
-                      member _.Render(ctx) =
-                        let topPort = getPort ctx.Viewport topRowLayout
-
-                        let notesFocusState =
-                          match model.Focus, Notes.capturesInput model.Notes with
-                          | 1, true -> Capturing
-                          | 1, false -> Focused
-                          | _ -> Unfocused
-
-                        ctx.Render(
-                          focusableBox
-                            "Notes"
-                            1
-                            notesFocusState
-                            (withPanelKeys (Notes.widget model.Notes) (Notes.keyMap model.Notes) (model.Focus = 1)),
-                          topPort "notes"
-                        )
-
-                        ctx.Render(
-                          focusableBox
-                            "Todo"
-                            2
-                            (focusStateFor 2)
-                            (withPanelKeys
-                              (TodoList.widget model.TodoList)
-                              (TodoList.keyMap model.TodoList)
-                              (model.Focus = 2)),
-                          topPort "todo"
-                        )
-                  },
-                  workPort "top"
+                  focusableBox
+                    "Notes"
+                    1
+                    notesFocusState
+                    (withPanelKeys (Notes.widget model.Notes) (Notes.keyMap model.Notes) (model.Focus = 1)),
+                  topPort "notes"
                 )
 
                 ctx.Render(
                   focusableBox
-                    "Timer"
-                    3
-                    (focusStateFor 3)
-                    (withPanelKeys (Timer.widget model.Timer) emptyKeyMap (model.Focus = 3)),
-                  workPort "timer"
-                )
-
-                ctx.Render(
-                  focusableBox
-                    "Session Info"
-                    4
-                    (focusStateFor 4)
-                    (withPanelKeys
-                      (SessionInfo.widget model.SessionInfo)
-                      (SessionInfo.keyMap model.SessionInfo)
-                      (model.Focus = 4)),
-                  workPort "bottom"
+                    "Todo"
+                    2
+                    (focusStateFor 2)
+                    (withPanelKeys (TodoList.widget model.TodoList) (TodoList.keyMap model.TodoList) (model.Focus = 2)),
+                  topPort "todo"
                 )
           },
-          slotPort "work-area"
+          workPort "top"
         )
 
         ctx.Render(
           focusableBox
-            "Users"
-            5
-            (focusStateFor 5)
-            (withPanelKeys (Avatar.widget model.Avatar) (Avatar.keyMap model.Avatar) (model.Focus = 5)),
-          slotPort "users-column"
+            "Journey"
+            3
+            (focusStateFor 3)
+            (withPanelKeys (Journey.widget model.Journey) emptyKeyMap (model.Focus = 3)),
+          workPort "journey"
+        )
+
+        ctx.Render(
+          focusableBox
+            "Session Info"
+            4
+            (focusStateFor 4)
+            (withPanelKeys
+              (SessionInfo.widget model.SessionInfo)
+              (SessionInfo.keyMap model.SessionInfo)
+              (model.Focus = 4)),
+          workPort "bottom"
         )
   }

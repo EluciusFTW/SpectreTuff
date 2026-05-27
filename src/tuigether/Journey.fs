@@ -1,11 +1,10 @@
-module Avatar
+module Journey
 
 open System
 open Elmish
 open Firebase.Database
 open Spectre.Console
 open Spectre.Tui
-open Keymap
 open SpectreTuff
 open SpectreTuff.Layout
 open SpectreTuff.Widgets
@@ -24,23 +23,7 @@ let resolveCreature () =
 let resolveName () =
   (resolveCreature ()).Name
 
-let moodToString (mood: Mood) =
-  match mood with
-  | Happy -> "Happy"
-  | Neutral -> "Neutral"
-  | Sad -> "Sad"
-
-let private moodFromString (s: string) =
-  match s with
-  | "Happy" -> Happy
-  | "Sad" -> Sad
-  | _ -> Neutral
-
-type User = {
-  Name: string
-  Creature: Creature
-  Mood: Mood
-}
+type User = { Name: string; Creature: Creature }
 
 type Persistence = {
   Client: FirebaseClient
@@ -51,17 +34,18 @@ type Model = {
   Users: User list
   ActiveDriver: User option
   CurrentUser: User
+  Timer: Timer.Model
   Persistence: Persistence
 }
 
 type Msg =
-  | NextMood
   | UpdateSession of Session.Data
   | RemoteUserChanged of user: string * presence: Session.UserPresence
   | RemoteUserRemoved of user: string
   | SetActiveDriver of string option
-  | PresenceSaved
   | ActiveDriverSaved
+  | SwitchDriver
+  | TimerMsg of Timer.Msg
 
 let private upsertUser (userName: string) (presence: Session.UserPresence) (model: Model) : Model =
   let avatarName: string =
@@ -69,20 +53,12 @@ let private upsertUser (userName: string) (presence: Session.UserPresence) (mode
     | true -> null
     | false -> presence.Avatar
 
-  let moodStr: string =
-    match isNull (presence :> obj) with
-    | true -> null
-    | false -> presence.Mood
-
-  let mood = moodFromString moodStr
-
   let updated =
     match userName = model.CurrentUser.Name with
-    | true -> { model.CurrentUser with Mood = mood }
+    | true -> model.CurrentUser
     | false -> {
         Name = userName
         Creature = creatureByName avatarName
-        Mood = mood
       }
 
   let users =
@@ -90,15 +66,9 @@ let private upsertUser (userName: string) (presence: Session.UserPresence) (mode
     | true -> model.Users |> List.map (fun u -> if u.Name = userName then updated else u)
     | false -> model.Users @ [ updated ]
 
-  let currentUser =
-    match userName = model.CurrentUser.Name with
-    | true -> updated
-    | false -> model.CurrentUser
-
   {
     model with
         Users = users
-        CurrentUser = currentUser
         ActiveDriver =
           match model.ActiveDriver with
           | None -> None
@@ -124,7 +94,6 @@ let init (client: FirebaseClient) (sessionId: string) (currentUser: string) (ava
   let me = {
     Name = currentUser
     Creature = myCreature
-    Mood = Neutral
   }
 
   {
@@ -136,26 +105,14 @@ let init (client: FirebaseClient) (sessionId: string) (currentUser: string) (ava
         Some {
           Name = data.ActiveDriver
           Creature = creatureByName data.ActiveDriver
-          Mood = Neutral
         }
     CurrentUser = me
+    Timer = Timer.init client sessionId
     Persistence = {
       Client = client
       SessionId = sessionId
     }
   }
-
-let private presenceCmd (model: Model) : Cmd<Msg> =
-  Cmd.OfAsync.perform
-    (fun () ->
-      Firebase.Users.setPresence
-        model.Persistence.Client
-        model.Persistence.SessionId
-        model.CurrentUser.Name
-        model.CurrentUser.Creature.Name
-        (moodToString model.CurrentUser.Mood))
-    ()
-    (fun () -> PresenceSaved)
 
 let private activeDriverCmd (model: Model) (driver: string option) : Cmd<Msg> =
   Cmd.OfAsync.perform
@@ -163,110 +120,125 @@ let private activeDriverCmd (model: Model) (driver: string option) : Cmd<Msg> =
     ()
     (fun () -> ActiveDriverSaved)
 
+let private feedTimer (model: Model) : Timer.Model * Cmd<Msg> =
+  let connectedUsers = model.Users |> List.map (fun u -> u.Name)
+  let activeDriver = model.ActiveDriver |> Option.map (fun u -> u.Name)
+  let userAvatarMap = model.Users |> List.map (fun u -> u.Name, u.Creature) |> Map.ofList
+
+  let timerM, timerCmd = Timer.update (Timer.SessionUpdated(connectedUsers, activeDriver, userAvatarMap)) model.Timer
+
+  timerM, Cmd.map TimerMsg timerCmd
+
 let update msg model =
   match msg with
-  | NextMood ->
-    let next =
-      match model.CurrentUser.Mood with
-      | Happy -> Neutral
-      | Neutral -> Sad
-      | Sad -> Happy
-
-    let updated = { model.CurrentUser with Mood = next }
-
-    let m = {
-      model with
-          CurrentUser = updated
-          Users =
-            model.Users
-            |> List.map (fun u ->
-              match u.Name = updated.Name with
-              | true -> updated
-              | false -> u)
-          ActiveDriver =
-            match model.ActiveDriver with
-            | Some d when d.Name = updated.Name -> Some updated
-            | other -> other
-    }
-
-    m, presenceCmd m
-
   | UpdateSession data ->
-    {
+    let withDriver = {
       model with
           ActiveDriver =
             match String.IsNullOrWhiteSpace(data.ActiveDriver) with
             | true -> None
             | false -> model.Users |> List.tryFind (fun u -> u.Name = data.ActiveDriver)
-    },
-    []
+    }
+
+    let timerM, timerCmd = feedTimer withDriver
+    { withDriver with Timer = timerM }, timerCmd
 
   | RemoteUserChanged(user, presence) -> upsertUser user presence model, []
   | RemoteUserRemoved user -> removeUser user model, []
+
   | SetActiveDriver driver -> model, activeDriverCmd model driver
-  | PresenceSaved -> model, []
   | ActiveDriverSaved -> model, []
 
+  | SwitchDriver ->
+    let users = model.Users
+
+    let nextUser =
+      match model.ActiveDriver with
+      | None -> users |> List.tryHead
+      | Some current ->
+        let idx =
+          users
+          |> List.tryFindIndex (fun u -> u.Name = current.Name)
+          |> Option.defaultValue -1
+
+        Some users.[(idx + 1) % users.Length]
+
+    let nextDriverName = nextUser |> Option.map (fun u -> u.Name)
+    let connectedNames = users |> List.map (fun u -> u.Name)
+    let avatarMap = users |> List.map (fun u -> u.Name, u.Creature) |> Map.ofList
+
+    let m = {
+      model with
+          ActiveDriver = nextUser
+          Timer = Timer.resetForDriver model.Timer nextDriverName connectedNames avatarMap
+    }
+
+    m, Cmd.batch [ activeDriverCmd m nextDriverName; Cmd.ofMsg (TimerMsg Timer.Start) ]
+
+  | TimerMsg tMsg ->
+    let m, cmd = Timer.update tMsg model.Timer
+    { model with Timer = m }, Cmd.map TimerMsg cmd
+
+let private subMap (wrap: 'a -> 'b) (subs: (string list * (Dispatch<'a> -> IDisposable)) list) =
+  subs
+  |> List.map (fun (key, start) -> key, (fun (dispatch: Dispatch<'b>) -> start (wrap >> dispatch)))
+
 let subscriptions (model: Model) =
-  Firebase.Users.subscription model.Persistence.Client model.Persistence.SessionId (fun ev ->
+  (Firebase.Users.subscription model.Persistence.Client model.Persistence.SessionId (fun ev ->
     match ev with
     | Firebase.UserChanged(user, presence) -> RemoteUserChanged(user, presence)
-    | Firebase.UserRemoved user -> RemoteUserRemoved user)
-
-let private bindings: KeyBinding<Model, Msg> list = [ KeyBinding.create 'm' "mood" NextMood ]
+    | Firebase.UserRemoved user -> RemoteUserRemoved user))
+  @ (Timer.subscriptions model.Timer |> subMap TimerMsg)
 
 let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
-  KeyBinding.handleKey bindings key model
+  Timer.handleKey key model.Timer |> Option.map TimerMsg
 
-let keyMap model =
-  KeyBinding.toKeyMap bindings model
+let keyMap (_model: Model) : Spectre.Tui.App.IKeyMap =
+  { new Spectre.Tui.App.IKeyMap with
+      member _.Help() =
+        Seq.empty
+  }
 
-let private withDriverLayout =
-  layout "av-with-driver"
-  |> splitHorizontally [| layout "driver-box" |> withFixedSize (Some 15); layout "others-area" |]
+let private avatarColor (creature: Creature) =
+  creature.SmallRows
+  |> List.concat
+  |> List.tryPick (function
+    | Filled c -> Some c
+    | Empty -> None)
+  |> Option.defaultValue Color.Silver
+
+let private journeyLayout =
+  layout "journey"
+  |> splitVertically [|
+    layout "pad-left" |> withFixedSize (Some 1)
+    layout "users" |> withFixedSize (Some 20)
+    layout "road"
+    layout "pad-right" |> withFixedSize (Some 1)
+  |]
 
 let widget (model: Model) : IWidget =
   { new IWidget with
       member _.Render(context: RenderContext) =
-        let renderCell cell =
-          match cell with
-          | Empty -> Text.span "  "
-          | Filled color -> Text.styledSpan (System.Nullable(Style color)) "██"
+        let port = getPort context.Viewport journeyLayout
 
-        let bigLinesWithName (user: User) =
-          let nameLine = Text.line [ Text.span user.Name ]
+        let userLine (user: User) =
+          let color = avatarColor user.Creature
+          let box = Text.styledSpan (Nullable(Style color)) "██"
 
-          let avatarLines =
-            user.Creature.Rows user.Mood
-            |> List.map (fun row -> row |> List.map renderCell |> Text.line)
+          let isDriver =
+            match model.ActiveDriver with
+            | Some d -> d.Name = user.Name
+            | None -> false
 
-          nameLine :: avatarLines
+          let nameSpan =
+            match isDriver with
+            | true -> Text.styledSpan (Nullable(Style color)) (sprintf "▶ %s" user.Name)
+            | false -> Text.span (sprintf "  %s" user.Name)
 
-        match model.ActiveDriver with
-        | None ->
-          let lines = model.Users |> List.collect bigLinesWithName
-          context.Render(paragraph lines |> withHorizontalAlignment Justify.Center, context.Viewport)
+          Text.line [ box; Text.span " "; nameSpan ]
 
-        | Some driverUser ->
-          let port = getPort context.Viewport withDriverLayout
+        let userLines = model.Users |> List.map userLine
+        context.Render(paragraph userLines, port "users")
 
-          let driverContent =
-            { new IWidget with
-                member _.Render(ctx: RenderContext) =
-                  ctx.Render(
-                    paragraph (bigLinesWithName driverUser)
-                    |> withHorizontalAlignment Justify.Center,
-                    ctx.Viewport
-                  )
-            }
-
-          context.Render(box Look.empty |> withTitle "Driver" |> withInnerWidget driverContent, port "driver-box")
-
-          let others = model.Users |> List.filter (fun u -> u.Name <> driverUser.Name)
-
-          context.Render(
-            paragraph (others |> List.collect bigLinesWithName)
-            |> withHorizontalAlignment Justify.Center,
-            port "others-area"
-          )
+        context.Render(Timer.widget model.Timer, port "road")
   }

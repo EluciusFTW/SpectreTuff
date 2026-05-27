@@ -108,7 +108,7 @@ let private buildPanels (model: Model) : Panel list =
 let init (client: FirebaseClient) (user: string) () =
   let listModel, listCmd = SessionList.init client user ()
 
-  let avatarName = Avatar.resolveName ()
+  let avatarName = Journey.resolveName ()
 
   {
     Page = SessionListPage

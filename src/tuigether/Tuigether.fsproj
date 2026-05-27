@@ -28,7 +28,7 @@
     <Compile Include="BreakGame.fs" />
     <Compile Include="Timer.fs" />
     <Compile Include="SessionInfo.fs" />
-    <Compile Include="Avatar.fs" />
+    <Compile Include="Journey.fs" />
     <Compile Include="SessionList.fs" />
     <Compile Include="SessionView.fs" />
     <Compile Include="Application.fs" />
