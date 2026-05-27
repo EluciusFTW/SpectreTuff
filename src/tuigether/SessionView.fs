@@ -136,10 +136,6 @@ let private outerBindings: KeyBinding<Model, Msg> list = [
     Description = "back"
     Message = Some GoBack
   })
-  KeyBinding.dynamic (SpecialKey ConsoleKey.Escape) (fun _ -> {
-    Description = "back"
-    Message = Some GoBack
-  })
   KeyBinding.dynamic (SpecialKey ConsoleKey.Tab) (fun model -> {
     Description = "next panel"
     Message = Some(FocusPanel(model.Focus % 4 + 1))
@@ -274,7 +270,10 @@ let widget (model: Model) : IWidget =
                     "Notes"
                     2
                     notesFocusState
-                    (withPanelKeys (Notes.widget model.Notes) (Notes.keyMap model.Notes) (model.Focus = 2)),
+                    (withPanelKeys
+                      (Notes.widget model.Notes (model.Focus = 2))
+                      (Notes.keyMap model.Notes)
+                      (model.Focus = 2)),
                   topPort "notes"
                 )
 
@@ -283,7 +282,10 @@ let widget (model: Model) : IWidget =
                     "Todo"
                     3
                     (focusStateFor 3)
-                    (withPanelKeys (TodoList.widget model.TodoList) (TodoList.keyMap model.TodoList) (model.Focus = 3)),
+                    (withPanelKeys
+                      (TodoList.widget model.TodoList (model.Focus = 3))
+                      (TodoList.keyMap model.TodoList)
+                      (model.Focus = 3)),
                   topPort "todo"
                 )
           },
@@ -292,7 +294,7 @@ let widget (model: Model) : IWidget =
 
         ctx.Render(
           focusableBox
-            "Journey"
+            "Journey and Passengers"
             4
             (focusStateFor 4)
             (withPanelKeys (Journey.widget model.Journey) emptyKeyMap (model.Focus = 4)),

@@ -350,7 +350,7 @@ type private TodoListItem(text: string, completed: bool) =
 
       Text(LineExtensions.FromString(text, style))
 
-let widget (model: Model) : IWidget =
+let widget (model: Model) (isFocused: bool) : IWidget =
   let items =
     model.Items
     |> List.map (fun item ->
@@ -364,8 +364,9 @@ let widget (model: Model) : IWidget =
   let listWidget =
     list items
     |> withSelectedIndex (
-      match items with
-      | [] -> None
+      match isFocused, items with
+      | false, _
+      | _, [] -> None
       | _ -> Some model.SelectedIndex
     )
     |> withHighlightSymbol (LineExtensions.FromString("> ", Style Color.Green))

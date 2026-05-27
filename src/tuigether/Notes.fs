@@ -551,7 +551,19 @@ let update msg model =
 let subscriptions (model: Model) =
   Firebase.Notes.subscription model.Persistence.Client model.Persistence.SessionId RemoteStateLoaded
 
-let widget (model: Model) : IWidget =
+// List items render green, matching the Todo widget. The selected row inverts
+// to black-on-green instead of the default list item's yellow-on-blue.
+type private NotesListItem(text: string) =
+  interface IListWidgetItem with
+    member _.CreateText(isSelected) =
+      let style =
+        match isSelected with
+        | true -> Style(Color.Black, Color.Green)
+        | false -> Style(Color.Green)
+
+      Text(LineExtensions.FromString(text, style))
+
+let widget (model: Model) (isFocused: bool) : IWidget =
   match model.NoteMode with
   | Freetext ->
     textBox model.FreetextContent
@@ -562,13 +574,14 @@ let widget (model: Model) : IWidget =
         | AddingItem _ -> unfocused)
     :> IWidget
   | List ->
-    let items = model.ListItems |> List.map (fun item -> ListItem item.Text)
+    let items = model.ListItems |> List.map (fun item -> NotesListItem item.Text)
 
     let listWidget =
       list items
       |> withSelectedIndex (
-        match items with
-        | [] -> None
+        match isFocused, items with
+        | false, _
+        | _, [] -> None
         | _ -> Some model.ListIndex
       )
       |> withHighlightSymbol (LineExtensions.FromString("> ", Style Color.Green))

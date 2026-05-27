@@ -235,9 +235,12 @@ type AppView(model: Model) =
         let composedWidget =
           { new IWidget with
               member _.Render(ctx) =
-                let port = getPort ctx.Viewport panelInnerLayout
-                ctx.Render(panel.Widget, port "content")
-                ctx.Render(help [ panel.KeyMap ] |> leftAligned, port "keys")
+                match panel.Boxed with
+                | true ->
+                  let port = getPort ctx.Viewport panelInnerLayout
+                  ctx.Render(panel.Widget, port "content")
+                  ctx.Render(help [ panel.KeyMap ] |> leftAligned, port "keys")
+                | false -> ctx.Render(panel.Widget, ctx.Viewport)
           }
 
         let renderedPanel: IWidget =
@@ -260,7 +263,7 @@ type AppView(model: Model) =
 
       let helpMaps =
         match model.Page with
-        | SessionViewPage _ -> SessionView.helpKeyMaps @ [ globalKeyMap ]
+        | SessionViewPage viewModel -> [ SessionView.keyMap viewModel ] @ SessionView.helpKeyMaps @ [ globalKeyMap ]
         | _ -> [ globalKeyMap ]
 
       ctx.Render(help helpMaps |> leftAligned, slotPort "help")
