@@ -289,11 +289,26 @@ let private formatConnected (users: Set<string>) =
   | count when count <= 3 -> sprintf "[%d] %s" count (users |> String.concat ", ")
   | count -> sprintf "[%d]" count
 
+let private formatDuration (millis: int64) =
+  let totalSeconds = max 0L (millis / 1000L)
+  let days = totalSeconds / 86400L
+  let hours = (totalSeconds % 86400L) / 3600L
+  let minutes = (totalSeconds % 3600L) / 60L
+  let seconds = totalSeconds % 60L
+
+  match days, hours, minutes with
+  | 0L, 0L, 0L -> sprintf "%ds" seconds
+  | 0L, 0L, _ -> sprintf "%dm" minutes
+  | 0L, _, _ -> sprintf "%dh %dm" hours minutes
+  | _ -> sprintf "%dd %dh" days hours
+
 let widget (model: Model) : IWidget =
   let listWidget: IWidget =
     match model.Sessions with
     | [] -> ofString "No sessions yet. Press [n] to create one." :> IWidget
     | _ ->
+      let nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+
       let items =
         model.Sessions
         |> List.choose (fun (sessionId, data) ->
@@ -304,13 +319,18 @@ let widget (model: Model) : IWidget =
 
             let status = Session.Status.fromString data.Status
 
+            let duration =
+              match data.WorkStartedAt with
+              | 0L -> ""
+              | workStartedAt -> formatDuration (nowMs - workStartedAt)
+
             let connected =
               model.ConnectedUsers
               |> Map.tryFind sessionId
               |> Option.defaultValue Set.empty
               |> formatConnected
 
-            Some(StatusListItem(sprintf "%-40s  %s  %s" data.Goal startedAt connected, status)))
+            Some(StatusListItem(sprintf "%-40s  %s  %-8s  %s" data.Goal startedAt duration connected, status)))
 
       list items
       |> selectedIndex model.SelectedIndex

@@ -28,6 +28,7 @@ module Status =
 type Data = {
   Goal: string
   StartedAt: int64
+  WorkStartedAt: int64
   Creator: string
   ActiveDriver: string
   Status: string

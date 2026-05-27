@@ -166,6 +166,17 @@ module Sessions =
         do!
           client.Child(sessionsPath).Child(sessionId).Child("Status").PutAsync(Session.Status.toString status :> obj)
           |> Async.AwaitTask
+
+        match status with
+        | Session.Status.Started ->
+          do!
+            client
+              .Child(sessionsPath)
+              .Child(sessionId)
+              .Child("WorkStartedAt")
+              .PutAsync(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() :> obj)
+            |> Async.AwaitTask
+        | _ -> ()
       with _ ->
         ()
     }
