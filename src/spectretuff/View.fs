@@ -3,8 +3,8 @@ namespace SpectreTuff
 open Spectre.Tui
 
 module View =
-  let shrink (rectangle: Rectangle) w h =
-    rectangle.Inflate(Size(-1 * w, -1 * h))
+  let shrink (rectangle: Rectangle) width height =
+    rectangle.Inflate(Size(-1 * width, -1 * height))
 
   let getInner rectangle =
     shrink rectangle 1 1

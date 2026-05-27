@@ -563,14 +563,17 @@ module Avatar =
     }
   ]
 
+  let private renderCell cell =
+    match cell with
+    | Empty -> Text.span "  "
+    | Filled color -> Text.styledSpan (System.Nullable(Style color)) "██"
+
+  let private normalizeIndex index =
+    ((index % library.Length) + library.Length) % library.Length
+
   type AvatarWidget(creature: Creature, mood: Mood) =
     interface IWidget with
       member _.Render(context: RenderContext) =
-        let renderCell cell =
-          match cell with
-          | Empty -> Text.span "  "
-          | Filled color -> Text.styledSpan (System.Nullable(Style color)) "██"
-
         let lines =
           creature.Rows mood
           |> List.map (fun row -> row |> List.map renderCell |> Text.line)
@@ -585,17 +588,11 @@ module Avatar =
     AvatarWidget(library[idx], mood)
 
   let avatarByIndex (mood: Mood) (index: int) =
-    let idx = ((index % library.Length) + library.Length) % library.Length
-    AvatarWidget(library[idx], mood)
+    AvatarWidget(library[normalizeIndex index], mood)
 
   type SmallAvatarWidget(creature: Creature) =
     interface IWidget with
       member _.Render(context: RenderContext) =
-        let renderCell cell =
-          match cell with
-          | Empty -> Text.span "  "
-          | Filled color -> Text.styledSpan (System.Nullable(Style color)) "██"
-
         let lines =
           creature.SmallRows
           |> List.map (fun row -> row |> List.map renderCell |> Text.line)
@@ -606,5 +603,4 @@ module Avatar =
     SmallAvatarWidget(creature)
 
   let smallAvatarByIndex (index: int) =
-    let idx = ((index % library.Length) + library.Length) % library.Length
-    SmallAvatarWidget(library[idx])
+    SmallAvatarWidget(library[normalizeIndex index])

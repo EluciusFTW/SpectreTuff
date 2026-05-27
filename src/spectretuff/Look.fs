@@ -34,15 +34,8 @@ module Look =
   let withDecorations decorations look = { look with Decorations = decorations }
 
   let toStyle look =
-    let fg =
-      match look.Color with
-      | Some c -> System.Nullable c
-      | None -> System.Nullable()
-
-    let bg =
-      match look.BackgroundColor with
-      | Some c -> System.Nullable c
-      | None -> System.Nullable()
+    let fg = Option.toNullable look.Color
+    let bg = Option.toNullable look.BackgroundColor
 
     let dec =
       match look.Decorations with
