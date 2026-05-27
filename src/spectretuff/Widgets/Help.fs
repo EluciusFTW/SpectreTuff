@@ -14,7 +14,7 @@ module Help =
     widget.Separator <- separator
     widget
 
-  let withStyle (look: Look) (widget: HelpWidget) =
+  let withLook (look: Look) (widget: HelpWidget) =
     widget.Style <- Look.toStyle look
     widget
 

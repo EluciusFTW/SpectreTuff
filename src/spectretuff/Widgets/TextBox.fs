@@ -26,8 +26,12 @@ module TextBoxes =
     textBox.PasswordChar <- Option.toNullable character
     textBox
 
-  let withReadOnly (enable: bool) (textBox: TextBoxWidget) =
-    textBox.IsReadOnly <- enable
+  let readOnly (textBox: TextBoxWidget) =
+    textBox.IsReadOnly <- true
+    textBox
+
+  let editable (textBox: TextBoxWidget) =
+    textBox.IsReadOnly <- false
     textBox
 
   let withLook look (textBox: TextBoxWidget) =
