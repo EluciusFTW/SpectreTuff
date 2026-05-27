@@ -190,9 +190,6 @@ let subscriptions (model: Model) =
     | Firebase.UserRemoved user -> RemoteUserRemoved user))
   @ (Timer.subscriptions model.Timer |> subMap TimerMsg)
 
-let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
-  Timer.handleKey key model.Timer |> Option.map TimerMsg
-
 let keyMap (_model: Model) : Spectre.Tui.App.IKeyMap =
   { new Spectre.Tui.App.IKeyMap with
       member _.Help() =

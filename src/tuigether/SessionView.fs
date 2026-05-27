@@ -191,7 +191,6 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
       | 2 -> Notes.handleKey key model.Notes |> Option.map NotesMsg
       | 3 -> TodoList.handleKey key model.TodoList |> Option.map TodoListMsg
       | _ -> None)
-    |> Option.orElseWith (fun () -> Journey.handleKey key model.Journey |> Option.map JourneyMsg)
 
 let keyMap (model: Model) : Spectre.Tui.App.IKeyMap =
   KeyBinding.toKeyMap outerBindings model
@@ -228,7 +227,7 @@ let private workAreaLayout =
   |> splitHorizontally [|
     layout "info" |> withFixedSize (Some 6)
     layout "middle" |> withRatio 1
-    layout "journey" |> withFixedSize (Some 6)
+    layout "journey" |> withFixedSize (Some 7)
   |]
 
 let widget (model: Model) : IWidget =

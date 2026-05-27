@@ -34,7 +34,6 @@ type Model = {
   ConnectedUsers: string list
   UserAvatars: Map<string, Creature>
   TickEpoch: int
-  Game: BreakGame.GameModel option
   Persistence: Persistence
 }
 
@@ -52,8 +51,6 @@ type Msg =
   | StartBreak
   | BreakTick
   | BreakFinished
-  | BreakGameJump
-  | BreakGameTick
   | SessionUpdated of string list * string option * Map<string, Creature>
   | RemoteStateLoaded of Session.TimerState option
   | StateSaved
@@ -73,8 +70,6 @@ let private flashTickCmd = Cmd.OfAsync.perform (fun () -> async { do! Async.Slee
 
 let private breakTickCmd = Cmd.OfAsync.perform (fun () -> async { do! Async.Sleep 500 }) () (fun () -> BreakTick)
 
-let private gameTickCmd = Cmd.OfAsync.perform (fun () -> async { do! Async.Sleep 100 }) () (fun () -> BreakGameTick)
-
 // ─── Notification ────────────────────────────────────────────────────────────
 
 let private sendNotification () =
@@ -88,19 +83,6 @@ let private sendNotification () =
   with _ ->
     ()
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-let private nextInList (users: string list) (current: string option) =
-  match users with
-  | [] -> None
-  | _ ->
-    let idx =
-      current
-      |> Option.bind (fun c -> users |> List.tryFindIndex ((=) c))
-      |> Option.defaultValue -1
-
-    Some users.[(idx + 1) % users.Length]
-
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 let init (client: FirebaseClient) (sessionId: string) = {
@@ -111,7 +93,6 @@ let init (client: FirebaseClient) (sessionId: string) = {
   ConnectedUsers = []
   UserAvatars = Map.empty
   TickEpoch = 0
-  Game = None
   Persistence = {
     Client = client
     SessionId = sessionId
@@ -126,7 +107,6 @@ let resetForDriver (previous: Model) (driver: string option) (users: string list
   ConnectedUsers = users
   UserAvatars = avatars
   TickEpoch = previous.TickEpoch + 1
-  Game = None
   Persistence = previous.Persistence
 }
 
@@ -225,7 +205,6 @@ let update msg model =
           State = Breaking 0
           Phase = Break
           Remaining = breakDuration
-          Game = Some(BreakGame.init ())
     },
     breakTickCmd
   | BreakTick ->
@@ -249,7 +228,6 @@ let update msg model =
           State = Idle
           Phase = Work
           Remaining = workDuration
-          Game = None
     }
 
     m, saveCmd m
@@ -261,7 +239,6 @@ let update msg model =
             State = Idle
             Phase = Work
             Remaining = workDuration
-            Game = None
       }
 
       m, saveCmd m
@@ -279,35 +256,6 @@ let update msg model =
       []
     | _ -> model, []
   | SwitchDriver -> model, []
-  | BreakGameJump ->
-    match model.State, model.Game with
-    | Breaking _, Some game ->
-      let roadWidth = 32
-
-      let newGame =
-        match game.Phase with
-        | BreakGame.WaitingForStart -> BreakGame.start roadWidth game
-        | BreakGame.Playing -> BreakGame.jump game
-        | BreakGame.GameOver _ -> game
-
-      let cmd =
-        match game.Phase, newGame.Phase with
-        | BreakGame.WaitingForStart, BreakGame.Playing -> gameTickCmd
-        | _ -> []
-
-      { model with Game = Some newGame }, cmd
-    | _ -> model, []
-  | BreakGameTick ->
-    match model.State, model.Game with
-    | Breaking _, Some game ->
-      let roadWidth = 32
-      let newGame = BreakGame.tick roadWidth game
-
-      match newGame.Phase with
-      | BreakGame.Playing
-      | BreakGame.GameOver _ -> { model with Game = Some newGame }, gameTickCmd
-      | BreakGame.WaitingForStart -> { model with Game = Some newGame }, []
-    | _ -> model, []
   | SessionUpdated(users, driver, avatars) ->
     {
       model with
@@ -330,17 +278,6 @@ let update msg model =
 let subscriptions (model: Model) =
   Firebase.Timer.subscription model.Persistence.Client model.Persistence.SessionId RemoteStateLoaded
 
-// ─── Key handling ────────────────────────────────────────────────────────────
-
-let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
-  match model.State, key.KeyChar, model.Game with
-  | Breaking _, ' ', Some game ->
-    match game.Phase with
-    | BreakGame.WaitingForStart
-    | BreakGame.Playing -> Some BreakGameJump
-    | BreakGame.GameOver _ -> None
-  | _ -> None
-
 // ─── Widget ──────────────────────────────────────────────────────────────────
 
 let private formatTime (t: TimeSpan) =
@@ -361,53 +298,15 @@ let private styledBlock (color: Color) =
 
 let private emptyBlock = Text.span "  "
 
-// Coffee cup pixel art: 8 cols × 9 rows (3 steam rows + 6 cup rows)
-// Steam rows animate each break tick.
-//
-// Colors:  B=SandyBrown  K=Grey3(coffee)  S=Silver(steam/saucer/handle)  e=Empty
-//
-//      0   1   2   3   4   5   6   7
-// S0:  .   .  [s]  .   .  [s]  .   .    steam
-// S1:  .  [s]  .  [s] [s]  .  [s]  .    steam
-// S2:  .   .  [s]  .   .  [s]  .   .    steam
-// C0:  .  [B] [B] [B] [B] [B] [B]  .    top rim
-// C1:  .  [B] [K] [K] [K] [K] [B] [S]   inside + handle top
-// C2:  .  [B] [K] [K] [K] [K] [B]  .    inside + handle gap (C-shape)
-// C3:  .  [B] [K] [K] [K] [K] [B] [S]   inside + handle bottom
-// C4:  .  [B] [B] [B] [B] [B] [B]  .    bottom rim
-// C5: [S] [S] [S] [S] [S] [S] [S] [S]   saucer
+// Pause glyph (big "||"): two vertical bars, 3 rows tall. The Timer gets only
+// 4 rows here (journey height 7, minus box border and the panel keys strip), so
+// glyph + timer line fill it exactly. Leading empty cell aligns with the "  " margin.
 
-let private cupRows =
+let private pauseRows =
   let e = Empty
-  let B = Filled Color.SandyBrown
-  let K = Filled Color.Grey3
-  let S = Filled Color.Silver
+  let P = Filled Color.DeepSkyBlue1
 
-  [
-    [ e; B; B; B; B; B; B; e ]
-    [ e; B; K; K; K; K; B; S ]
-    [ e; B; K; K; K; K; B; e ]
-    [ e; B; K; K; K; K; B; S ]
-    [ e; B; B; B; B; B; B; e ]
-    [ S; S; S; S; S; S; S; S ]
-  ]
-
-let private steamFrames =
-  let e = Empty
-  let S = Filled Color.Silver
-
-  [
-    [
-      [ e; e; S; e; e; S; e; e ]
-      [ e; S; e; S; S; e; S; e ]
-      [ e; e; S; e; e; S; e; e ]
-    ]
-    [
-      [ e; S; e; S; S; e; S; e ]
-      [ e; e; S; e; e; S; e; e ]
-      [ e; S; e; S; S; e; S; e ]
-    ]
-  ]
+  [ [ e; P; P; e; P; P ]; [ e; P; P; e; P; P ]; [ e; P; P; e; P; P ] ]
 
 let widget (model: Model) : IWidget =
   { new IWidget with
@@ -417,119 +316,13 @@ let widget (model: Model) : IWidget =
           | Empty -> emptyBlock
           | Filled color -> styledBlock color
 
-        let gameRoadWidth = max 16 (context.Viewport.Width / 2)
-        let cupWidth = 8
-
         match model.State with
-        | Breaking frame ->
-          let steamRows = steamFrames.[(frame / 2) % 2]
-          let allCupRows = steamRows @ cupRows
+        | Breaking _ ->
+          let pauseLines = pauseRows |> List.map (fun row -> row |> List.map renderCell |> Text.line)
 
-          let label1 = model.ActiveDriver |> Option.defaultValue "?"
-          let label2 = nextInList model.ConnectedUsers model.ActiveDriver |> Option.defaultValue "?"
+          let infoLine = Text.line [ Text.span (sprintf "  BREAK  %s" (formatTime model.Remaining)) ]
 
-          let driverColor =
-            model.ActiveDriver
-            |> Option.bind (fun u -> model.UserAvatars |> Map.tryFind u)
-            |> Option.map (fun creature ->
-              creature.SmallRows
-              |> List.concat
-              |> List.tryPick (function
-                | Filled c -> Some c
-                | Empty -> None)
-              |> Option.defaultValue Color.Silver)
-            |> Option.defaultValue Color.Silver
-
-          match model.Game with
-          | None ->
-            let cupLines = allCupRows |> List.map (fun row -> row |> List.map renderCell |> Text.line)
-
-            let infoLines = [
-              Text.line [ Text.span "" ]
-              Text.line [ Text.span (sprintf "  BREAK  %s" (formatTime model.Remaining)) ]
-              Text.line [ Text.span (sprintf "  %s → %s" label1 label2) ]
-            ]
-
-            context.Render(paragraph (cupLines @ infoLines), context.Viewport)
-
-          | Some game ->
-            match game.Phase with
-            | BreakGame.WaitingForStart ->
-              let cupLines = allCupRows |> List.map (fun row -> row |> List.map renderCell |> Text.line)
-
-              let infoLines = [
-                Text.line [ Text.span (sprintf "  [BREAK]  %s" (formatTime model.Remaining)) ]
-                Text.line [ Text.span (sprintf "  %s → %s" label1 label2) ]
-                Text.line [ Text.span "  [PRESS SPACE]" ]
-              ]
-
-              context.Render(paragraph (cupLines @ infoLines), context.Viewport)
-
-            | BreakGame.Playing
-            | BreakGame.GameOver _ ->
-              let carYInt = int (System.Math.Round(game.CarY))
-              let groundRow = 7
-              let carWheelsRow = max 0 (groundRow - carYInt)
-              let carBodyRow = max 0 (carWheelsRow - 1)
-              let carRoofRow = max 0 (carBodyRow - 1)
-
-              let obstacleColors = [|
-                Color.Green
-                Color.DeepSkyBlue1
-                Color.SpringGreen1
-                Color.DodgerBlue1
-                Color.Lime
-                Color.Aquamarine1
-                Color.Blue1
-              |]
-
-              let obstacleAtCol gameCol =
-                game.Obstacles
-                |> List.tryFind (fun o ->
-                  let ox = int (System.Math.Round(o.X))
-                  gameCol >= ox && gameCol < ox + o.Width)
-
-              let gameCell row gameCol =
-                let inCarCols = gameCol >= 4 && gameCol <= 6
-                let relCol = gameCol - 4
-
-                match obstacleAtCol gameCol with
-                | Some obs when row > groundRow - obs.Height && row <= groundRow ->
-                  styledBlock obstacleColors.[obs.ColorTag % obstacleColors.Length]
-                | _ ->
-                  if inCarCols && row = carRoofRow then
-                    styledBlock Color.Silver
-                  elif inCarCols && row = carBodyRow then
-                    match relCol with
-                    | 0
-                    | 2 -> styledBlock Color.Grey15
-                    | _ -> styledBlock driverColor
-                  elif inCarCols && row = carWheelsRow then
-                    match relCol with
-                    | 0
-                    | 2 -> styledBlock Color.Grey3
-                    | _ -> styledBlock Color.Grey
-                  elif row >= groundRow - 1 then
-                    styledBlock Color.Grey23
-                  else
-                    emptyBlock
-
-              let compositeLines = [
-                for row in 0 .. List.length allCupRows - 1 ->
-                  let cupCells = allCupRows.[row] |> List.map renderCell
-                  let gameCells = [ for col in 0 .. gameRoadWidth - cupWidth - 1 -> gameCell row col ]
-                  Text.line (cupCells @ gameCells)
-              ]
-
-              let infoLine =
-                match game.Phase with
-                | BreakGame.Playing ->
-                  Text.line [
-                    Text.span (sprintf "  BREAK %s  score: %d" (formatTime model.Remaining) game.Score)
-                  ]
-                | _ -> Text.line [ Text.span (sprintf "  GAME OVER  score: %d" game.Score) ]
-
-              context.Render(paragraph (compositeLines @ [ infoLine ]), context.Viewport)
+          context.Render(paragraph (pauseLines @ [ infoLine ]), context.Viewport)
 
         | _ ->
           let roadWidth = max carWidth (context.Viewport.Width / 2)
