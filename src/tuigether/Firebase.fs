@@ -143,7 +143,12 @@ module Sessions =
     [ "firebase-sessions" ], fun dispatch -> subscribeSessions client (wrap >> dispatch)
   ]
 
-  let create (client: FirebaseClient) (user: string) (title: string) : Async<Result<string, string>> =
+  let create
+    (client: FirebaseClient)
+    (user: string)
+    (title: string)
+    (gitBranch: string)
+    : Async<Result<string, string>> =
     async {
       try
         let data = {
@@ -156,6 +161,7 @@ module Sessions =
           Session.Data.Status = Session.Status.toString Session.Status.Created
           Session.Data.GoalLockOwner = null
           Session.Data.GoalLockedAt = 0L
+          Session.Data.GitBranch = gitBranch
         }
 
         let! result = client.Child(sessionsPath).PostAsync(data) |> Async.AwaitTask

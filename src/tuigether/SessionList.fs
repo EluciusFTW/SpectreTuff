@@ -148,7 +148,10 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
         None
       | _ ->
         { model with InputMode = Browsing },
-        Cmd.OfAsync.perform (fun () -> Firebase.Sessions.create model.Client model.User trimmed) () CreateCompleted,
+        Cmd.OfAsync.perform
+          (fun () -> Firebase.Sessions.create model.Client model.User trimmed (Git.readCurrentBranch ()))
+          ()
+          CreateCompleted,
         None
     | Browsing -> model, [], None
   | CancelNaming -> { model with InputMode = Browsing }, [], None

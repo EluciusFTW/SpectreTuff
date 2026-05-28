@@ -27,6 +27,8 @@ type Model = {
   InsertActivityToken: int
   InputMode: InputMode
   Lock: Lock option
+  GitBranch: string
+  LocalGitBranch: string
 }
 
 type Msg =
@@ -62,6 +64,11 @@ let isHoldingLock (model: Model) =
   | Insert, Some l -> l.Owner = model.User
   | _ -> false
 
+let private branchFromData (data: Session.Data) =
+  match isNull data.GitBranch || data.GitBranch = "" with
+  | true -> "(unknown)"
+  | false -> data.GitBranch
+
 let private lockFromData (data: Session.Data) =
   match isNull data.GoalLockOwner || data.GoalLockOwner = "" with
   | true -> None
@@ -84,6 +91,8 @@ let init (client: FirebaseClient) (sessionId: string) (user: string) (sessionDat
   InsertActivityToken = 0
   InputMode = Normal
   Lock = lockFromData sessionData
+  GitBranch = branchFromData sessionData
+  LocalGitBranch = Git.readCurrentBranch ()
 }
 
 let private normalBindings: KeyBinding<Model, Msg> list = [
@@ -279,6 +288,7 @@ let update msg model =
           StartedAt = data.StartedAt
           GoalContent = goalContent
           Lock = lockFromData data
+          GitBranch = branchFromData data
     },
     []
   | StateSaved -> model, []
@@ -287,7 +297,11 @@ let subscriptions (_model: Model) = []
 
 let private infoLayout =
   layout "session-info"
-  |> splitHorizontally [| layout "goal"; layout "started" |> withFixedSize (Some 1) |]
+  |> splitHorizontally [|
+    layout "goal"
+    layout "branch" |> withFixedSize (Some 1)
+    layout "started" |> withFixedSize (Some 1)
+  |]
 
 let widget (model: Model) : IWidget =
   { new IWidget with
@@ -303,6 +317,13 @@ let widget (model: Model) : IWidget =
           :> IWidget
 
         ctx.Render(goalWidget, port "goal")
+
+        let branchLine =
+          match model.LocalGitBranch = "" || model.LocalGitBranch = model.GitBranch with
+          | true -> sprintf "  Branch:  %s" model.GitBranch
+          | false -> sprintf "  Branch:  %s [red](%s)[/]" model.GitBranch model.LocalGitBranch
+
+        ctx.Render(ofMarkup branchLine :> IWidget, port "branch")
 
         let startedAt = DateTimeOffset.FromUnixTimeMilliseconds(model.StartedAt).ToString("yyyy-MM-dd HH:mm:ss")
         ctx.Render(ofString (sprintf "  Started: %s" startedAt) :> IWidget, port "started")

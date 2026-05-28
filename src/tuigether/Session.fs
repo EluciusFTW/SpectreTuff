@@ -35,6 +35,7 @@ type Data = {
   Status: string
   GoalLockOwner: string
   GoalLockedAt: int64
+  GitBranch: string
 }
 
 [<CLIMutable>]

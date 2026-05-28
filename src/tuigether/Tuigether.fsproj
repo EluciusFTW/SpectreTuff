@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <Compile Include="Config.fs" />
+    <Compile Include="Git.fs" />
     <Compile Include="Session.fs" />
     <Compile Include="Keylistener.fs" />
     <Compile Include="Tick.fs" />
