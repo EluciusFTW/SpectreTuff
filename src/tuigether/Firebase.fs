@@ -213,6 +213,16 @@ module Sessions =
           |> Async.AwaitTask
     }
 
+  let saveGitBranch (client: FirebaseClient) (sessionId: string) (branch: string) : Async<unit> =
+    async {
+      try
+        do!
+          client.Child(sessionsPath).Child(sessionId).Child("GitBranch").PutAsync(branch :> obj)
+          |> Async.AwaitTask
+      with _ ->
+        ()
+    }
+
   let saveGoal (client: FirebaseClient) (sessionId: string) (text: string) : Async<unit> =
     async {
       try
