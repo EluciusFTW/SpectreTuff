@@ -20,6 +20,7 @@ type Model = {
   Focus: int
   LogVisible: bool
   LogModel: Log.Model
+  Exiting: bool
 }
 
 type Msg =
@@ -118,6 +119,7 @@ let init (client: FirebaseClient) (user: string) () =
     Focus = 1
     LogVisible = false
     LogModel = Log.init ()
+    Exiting = false
   },
   Cmd.map SessionListMsg listCmd
 
@@ -205,7 +207,12 @@ let update (client: FirebaseClient) (user: string) msg model =
       modelAfterOut, Cmd.batch [ Cmd.map SessionViewMsg sessionCmd; outCmd ]
     | _ -> model, []
 
-  | LeaveFinalized -> model, []
+  | LeaveFinalized ->
+    match model.Exiting with
+    | true ->
+      exitEvent.Set()
+      model, []
+    | false -> model, []
 
   | ToggleLog ->
     {
@@ -217,8 +224,11 @@ let update (client: FirebaseClient) (user: string) msg model =
   | Tick -> model, []
 
   | Exit ->
-    exitEvent.Set()
-    model, []
+    match model.Page, model.Exiting with
+    | SessionViewPage _, false -> { model with Exiting = true }, Cmd.ofMsg (SessionViewMsg SessionView.GoBack)
+    | _ ->
+      exitEvent.Set()
+      model, []
 
 let subscriptions (model: Model) =
   match model.Page with
