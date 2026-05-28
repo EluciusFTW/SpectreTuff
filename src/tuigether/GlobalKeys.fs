@@ -4,19 +4,22 @@ open System
 open Keymap
 
 type Msg =
-  | PauseDrive
-  | ResumeDrive
-  | Teleport
-  | NextDrive
+  | StageDrive
+  | FastForward
 
-let private bindings: KeyBinding<unit, Msg> list = [
-  KeyBinding.create 'p' "pause" PauseDrive
-  KeyBinding.create 'r' "resume" ResumeDrive
-  KeyBinding.create 't' "teleport" Teleport
-  KeyBinding.create 'n' "next drive" NextDrive
+let private bindings (stageHelp: string) (canFastForward: bool) : KeyBinding<unit, Msg> list = [
+  KeyBinding.create 's' stageHelp StageDrive
+  KeyBinding.dynamic (CharKey 'f') (fun _ -> {
+    Description = "fast-forward"
+    Message =
+      match canFastForward with
+      | true -> Some FastForward
+      | false -> None
+  })
 ]
 
-let handleKey (key: ConsoleKeyInfo) : Msg option =
-  KeyBinding.handleKey bindings key ()
+let handleKey (canFastForward: bool) (key: ConsoleKeyInfo) : Msg option =
+  KeyBinding.handleKey (bindings "" canFastForward) key ()
 
-let keyMap: Spectre.Tui.App.IKeyMap = KeyBinding.toKeyMap bindings ()
+let keyMap (stageHelp: string) (canFastForward: bool) : Spectre.Tui.App.IKeyMap =
+  KeyBinding.toKeyMap (bindings stageHelp canFastForward) ()

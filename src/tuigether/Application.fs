@@ -273,7 +273,10 @@ type AppView(model: Model) =
 
       let helpMaps =
         match model.Page with
-        | SessionViewPage viewModel -> [ SessionView.keyMap viewModel ] @ SessionView.helpKeyMaps @ [ globalKeyMap ]
+        | SessionViewPage viewModel ->
+          [ SessionView.keyMap viewModel ]
+          @ SessionView.helpKeyMaps viewModel
+          @ [ globalKeyMap ]
         | _ -> [ globalKeyMap ]
 
       ctx.Render(help helpMaps |> leftAligned, slotPort "help")

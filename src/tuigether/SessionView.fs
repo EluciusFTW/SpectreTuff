@@ -161,12 +161,27 @@ let capturesInput (model: Model) =
   | 3 -> TodoList.capturesInput model.TodoList
   | _ -> false
 
-let private globalKeyToMsg (gMsg: GlobalKeys.Msg) : Msg =
+let private stageHelp (model: Model) =
+  match model.Journey.Timer.State with
+  | Timer.Running -> "stop"
+  | Timer.Idle ->
+    match model.Journey.ActiveDriver with
+    | None -> "start"
+    | Some _ -> "next"
+  | _ -> "next"
+
+let private canFastForward (model: Model) =
+  match model.Journey.Timer.State with
+  | Timer.Running -> true
+  | _ -> false
+
+let private globalKeyToMsg (model: Model) (gMsg: GlobalKeys.Msg) : Msg =
   match gMsg with
-  | GlobalKeys.PauseDrive -> JourneyMsg(Journey.TimerMsg Timer.Pause)
-  | GlobalKeys.ResumeDrive -> JourneyMsg(Journey.TimerMsg Timer.Start)
-  | GlobalKeys.Teleport -> JourneyMsg(Journey.TimerMsg Timer.SkipTimer)
-  | GlobalKeys.NextDrive -> JourneyMsg Journey.SwitchDriver
+  | GlobalKeys.StageDrive ->
+    match model.Journey.Timer.State with
+    | Timer.Running -> JourneyMsg(Journey.TimerMsg Timer.Stop)
+    | _ -> JourneyMsg Journey.SwitchDriver
+  | GlobalKeys.FastForward -> JourneyMsg(Journey.TimerMsg Timer.SkipTimer)
 
 let private isShiftTab (key: ConsoleKeyInfo) =
   key.Key = ConsoleKey.Tab && key.Modifiers.HasFlag(ConsoleModifiers.Shift)
@@ -180,8 +195,8 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
     | 3 -> TodoList.handleKey key model.TodoList |> Option.map TodoListMsg
     | _ -> None
   | false ->
-    GlobalKeys.handleKey key
-    |> Option.map globalKeyToMsg
+    GlobalKeys.handleKey (canFastForward model) key
+    |> Option.map (globalKeyToMsg model)
     |> Option.orElseWith (fun () -> tryFocusNumber key)
     |> Option.orElseWith (fun () ->
       match isShiftTab key with
@@ -211,7 +226,7 @@ let keyMap (model: Model) : Spectre.Tui.App.IKeyMap =
         Seq.append (outer.Help()) (shiftTabHelp.Help())
   }
 
-let helpKeyMaps: IKeyMap list = [ GlobalKeys.keyMap ]
+let helpKeyMaps (model: Model) : IKeyMap list = [ GlobalKeys.keyMap (stageHelp model) (canFastForward model) ]
 
 let private emptyKeyMap: IKeyMap =
   { new IKeyMap with
