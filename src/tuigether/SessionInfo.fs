@@ -47,6 +47,7 @@ type Model = {
   Lock: Lock option
   GitBranch: string
   LocalGitBranch: string
+  SessionTitle: string
 }
 
 type Msg =
@@ -66,6 +67,7 @@ type Msg =
   | DismissBranchPopup
   | BranchCreateCompleted of name: string * Result<unit, string>
   | BeginSync
+  | BeginWipSync
   | SyncCompleted of Result<unit, string>
   | DismissSyncPopup
 
@@ -120,6 +122,10 @@ let init (client: FirebaseClient) (sessionId: string) (user: string) (sessionDat
   Lock = lockFromData sessionData
   GitBranch = branchFromData sessionData
   LocalGitBranch = Git.readCurrentBranch ()
+  SessionTitle =
+    match isNull sessionData.Title with
+    | true -> ""
+    | false -> sessionData.Title
 }
 
 let private normalBindings: KeyBinding<Model, Msg> list = [
@@ -150,6 +156,16 @@ let private normalBindings: KeyBinding<Model, Msg> list = [
       Description = help
       Message = Some BeginSync
     })
+  KeyBinding.dynamic (CharKey 'w') (fun model ->
+    match model.LocalGitBranch = model.GitBranch with
+    | true -> {
+        Description = "WIP sync"
+        Message = Some BeginWipSync
+      }
+    | false -> {
+        Description = "WIP sync (off branch)"
+        Message = None
+      })
 ]
 
 let private insertModeBindings: KeyBinding<Model, Msg> list = [
@@ -186,6 +202,7 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
     | 'i' -> Some EnterInsert
     | 'b' -> Some BeginCreateBranch
     | 'S' -> Some BeginSync
+    | 'w' when model.LocalGitBranch = model.GitBranch -> Some BeginWipSync
     | _ -> None
   | BranchPopup { Stage = EditingName _ } ->
     match key.Key with
@@ -263,10 +280,13 @@ let private createBranchCmd (name: string) : Cmd<Msg> =
 let private syncCmd (onSessionBranch: bool) (sessionBranch: string) : Cmd<Msg> =
   let work =
     match onSessionBranch with
-    | true -> Git.pull ()
+    | true -> Git.syncCurrentBranch ()
     | false -> Git.fetchAndCheckout sessionBranch
 
   Cmd.OfAsync.perform (fun () -> work) () SyncCompleted
+
+let private wipSyncCmd (title: string) : Cmd<Msg> =
+  Cmd.OfAsync.perform (fun () -> Git.wipSync title) () SyncCompleted
 
 let private saveGitBranchCmd (model: Model) (branch: string) : Cmd<Msg> =
   Cmd.OfAsync.perform (fun () -> Firebase.Sessions.saveGitBranch model.Client model.SessionId branch) () (fun () ->
@@ -384,6 +404,10 @@ let update msg model =
           GoalContent = goalContent
           Lock = lockFromData data
           GitBranch = branchFromData data
+          SessionTitle =
+            match isNull data.Title with
+            | true -> ""
+            | false -> data.Title
     },
     []
   | StateSaved -> model, []
@@ -486,6 +510,15 @@ let update msg model =
             InputMode = SyncPopup RunningSync
       },
       syncCmd onSessionBranch model.GitBranch
+    | _ -> model, []
+  | BeginWipSync ->
+    match model.InputMode, model.LocalGitBranch = model.GitBranch with
+    | Normal, true ->
+      {
+        model with
+            InputMode = SyncPopup RunningSync
+      },
+      wipSyncCmd model.SessionTitle
     | _ -> model, []
   | SyncCompleted(Ok()) ->
     {
