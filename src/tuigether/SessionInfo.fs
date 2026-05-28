@@ -48,6 +48,7 @@ type Model = {
   GitBranch: string
   LocalGitBranch: string
   SessionTitle: string
+  LastSeenWipAt: int64
 }
 
 type Msg =
@@ -69,6 +70,7 @@ type Msg =
   | BeginSync
   | BeginWipSync
   | SyncCompleted of Result<unit, string>
+  | WipSyncCompleted of Result<unit, string>
   | DismissSyncPopup
 
 let private goalDebounceMs = 300
@@ -126,6 +128,7 @@ let init (client: FirebaseClient) (sessionId: string) (user: string) (sessionDat
     match isNull sessionData.Title with
     | true -> ""
     | false -> sessionData.Title
+  LastSeenWipAt = sessionData.LastWipPushAt
 }
 
 let private normalBindings: KeyBinding<Model, Msg> list = [
@@ -286,7 +289,13 @@ let private syncCmd (onSessionBranch: bool) (sessionBranch: string) : Cmd<Msg> =
   Cmd.OfAsync.perform (fun () -> work) () SyncCompleted
 
 let private wipSyncCmd (title: string) : Cmd<Msg> =
-  Cmd.OfAsync.perform (fun () -> Git.wipSync title) () SyncCompleted
+  Cmd.OfAsync.perform (fun () -> Git.wipSync title) () WipSyncCompleted
+
+let private saveWipPushCmd (model: Model) (timestamp: int64) : Cmd<Msg> =
+  Cmd.OfAsync.perform
+    (fun () -> Firebase.Sessions.saveWipPush model.Client model.SessionId model.User timestamp)
+    ()
+    (fun () -> StateSaved)
 
 let private saveGitBranchCmd (model: Model) (branch: string) : Cmd<Msg> =
   Cmd.OfAsync.perform (fun () -> Firebase.Sessions.saveGitBranch model.Client model.SessionId branch) () (fun () ->
@@ -398,18 +407,41 @@ let update msg model =
         | true -> ""
         | false -> data.Goal
 
-    {
+    let newGitBranch = branchFromData data
+
+    let isRemoteWipPush =
+      data.LastWipPushAt > model.LastSeenWipAt
+      && not (isNull data.LastWipPushBy)
+      && data.LastWipPushBy <> model.User
+
+    let shouldAutoPull =
+      isRemoteWipPush
+      && model.InputMode = Normal
+      && model.LocalGitBranch = newGitBranch
+
+    let updated = {
       model with
           StartedAt = data.StartedAt
           GoalContent = goalContent
           Lock = lockFromData data
-          GitBranch = branchFromData data
+          GitBranch = newGitBranch
           SessionTitle =
             match isNull data.Title with
             | true -> ""
             | false -> data.Title
-    },
-    []
+          LastSeenWipAt = data.LastWipPushAt
+          InputMode =
+            match shouldAutoPull with
+            | true -> SyncPopup RunningSync
+            | false -> model.InputMode
+    }
+
+    let cmd =
+      match shouldAutoPull with
+      | true -> syncCmd true newGitBranch
+      | false -> []
+
+    updated, cmd
   | StateSaved -> model, []
   | BeginCreateBranch ->
     match model.InputMode with
@@ -528,6 +560,24 @@ let update msg model =
     },
     []
   | SyncCompleted(Error err) ->
+    {
+      model with
+          InputMode = SyncPopup(SyncFailed err)
+          LocalGitBranch = Git.readCurrentBranch ()
+    },
+    []
+  | WipSyncCompleted(Ok()) ->
+    let timestamp = nowMs ()
+
+    let updated = {
+      model with
+          InputMode = Normal
+          LocalGitBranch = Git.readCurrentBranch ()
+          LastSeenWipAt = timestamp
+    }
+
+    updated, saveWipPushCmd updated timestamp
+  | WipSyncCompleted(Error err) ->
     {
       model with
           InputMode = SyncPopup(SyncFailed err)

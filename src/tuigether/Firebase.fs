@@ -162,6 +162,8 @@ module Sessions =
           Session.Data.GoalLockOwner = null
           Session.Data.GoalLockedAt = 0L
           Session.Data.GitBranch = gitBranch
+          Session.Data.LastWipPushAt = 0L
+          Session.Data.LastWipPushBy = null
         }
 
         let! result = client.Child(sessionsPath).PostAsync(data) |> Async.AwaitTask
@@ -211,6 +213,20 @@ module Sessions =
         do!
           client.Child(sessionsPath).Child(sessionId).Child("ActiveDriver").DeleteAsync()
           |> Async.AwaitTask
+    }
+
+  let saveWipPush (client: FirebaseClient) (sessionId: string) (user: string) (timestamp: int64) : Async<unit> =
+    async {
+      try
+        do!
+          client.Child(sessionsPath).Child(sessionId).Child("LastWipPushBy").PutAsync(user :> obj)
+          |> Async.AwaitTask
+
+        do!
+          client.Child(sessionsPath).Child(sessionId).Child("LastWipPushAt").PutAsync(timestamp :> obj)
+          |> Async.AwaitTask
+      with _ ->
+        ()
     }
 
   let saveGitBranch (client: FirebaseClient) (sessionId: string) (branch: string) : Async<unit> =

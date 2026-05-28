@@ -36,6 +36,8 @@ type Data = {
   GoalLockOwner: string
   GoalLockedAt: int64
   GitBranch: string
+  LastWipPushAt: int64
+  LastWipPushBy: string
 }
 
 [<CLIMutable>]
