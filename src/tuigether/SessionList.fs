@@ -221,7 +221,7 @@ let subscriptions (model: Model) =
   let perSessionSubs =
     model.Sessions
     |> List.collect (fun (sessionId, _) ->
-      Firebase.Users.subscription model.Client sessionId (fun ev ->
+      Firebase.Users.subscription model.Client sessionId "list" (fun ev ->
         match ev with
         | Firebase.UserChanged(user, _) -> ConnectedUserChanged(sessionId, user)
         | Firebase.UserRemoved user -> ConnectedUserRemoved(sessionId, user)))

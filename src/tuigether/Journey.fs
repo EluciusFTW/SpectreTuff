@@ -184,7 +184,7 @@ let private subMap (wrap: 'a -> 'b) (subs: (string list * (Dispatch<'a> -> IDisp
   |> List.map (fun (key, start) -> key, (fun (dispatch: Dispatch<'b>) -> start (wrap >> dispatch)))
 
 let subscriptions (model: Model) =
-  (Firebase.Users.subscription model.Persistence.Client model.Persistence.SessionId (fun ev ->
+  (Firebase.Users.subscription model.Persistence.Client model.Persistence.SessionId "journey" (fun ev ->
     match ev with
     | Firebase.UserChanged(user, presence) -> RemoteUserChanged(user, presence)
     | Firebase.UserRemoved user -> RemoteUserRemoved user))

@@ -307,8 +307,12 @@ module Users =
       .AsObservable<Session.UserPresence>()
       .Subscribe(Action<FirebaseEvent<Session.UserPresence>> onNext, Action<exn> onError)
 
-  let subscription (client: FirebaseClient) (sessionId: string) (wrap: UserEvent -> 'appMsg) = [
-    [ "connected-users"; sessionId ],
+  // `subscriberTag` distinguishes subscribers of the same session's connectedUsers
+  // path. Elmish keys subscriptions by their key list and keeps the first-registered
+  // start function for a given key, so two consumers (e.g. SessionList and Journey)
+  // sharing one key would silently route all events to whichever registered first.
+  let subscription (client: FirebaseClient) (sessionId: string) (subscriberTag: string) (wrap: UserEvent -> 'appMsg) = [
+    [ "connected-users"; subscriberTag; sessionId ],
     fun dispatch -> subscribeConnectedUsers client sessionId (wrap >> dispatch) (fun _ -> ())
   ]
 
