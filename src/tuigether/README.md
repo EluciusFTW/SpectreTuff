@@ -51,15 +51,13 @@ Environment variables override the config file:
                ┌──────────▼──────────┐
                │  Firebase Realtime  │
                │      Database       │
-               │  (sessions, timer,  │
-              │  notes, todos, ...)  │
+                │  (sessions, timer, │
+               │  notes, todos, ...) │
                └─────────────────────┘
 ```
 
 Each client subscribes to the shared session tree and pushes local changes (timer state, notes, driver, presence) in real time. A simple lock record per document (notes, goals) prevents simultaneous edits.
 
-<<<<<<< Updated upstream
-=======
 ## Elmish MVU model
 
 Elmish follows the Model-View-Update (MVU) pattern: the app state is a single immutable record, every change goes through a pure `update` function, and the result is re-rendered.
@@ -67,8 +65,8 @@ Elmish follows the Model-View-Update (MVU) pattern: the app state is a single im
 ```
         ┌─────────────────────────────────────┐◀──────────────┐
         │               Msg                   │               │
-        │  (InputMsg | Tick | SessionListMsg  │               │ new Msg
-        │   | SessionViewMsg | ...)           │               │
+        │  (InputMsg | Tick | SessionListMsg   │              │ new Msg
+        │   | SessionViewMsg | ...)            │              │
         └───────────────┬─────────────────────┘               │
                         │                                     │
                         ▼                                     │
@@ -174,7 +172,6 @@ EnterInsert              ExitInsert
   write content to Firebase
 ```
 
->>>>>>> Stashed changes
 ## Logs
 
 Daily log files are written to `./logs/tuigether-YYYY-MM-DD.log` (or `TUIGETHER_LOG_DIR`). Press `l` in the app to open the inline log viewer.
