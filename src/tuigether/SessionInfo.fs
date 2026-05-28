@@ -47,6 +47,7 @@ type Model = {
   Lock: Lock option
   GitBranch: string
   LocalGitBranch: string
+  GitRepo: string
   LocalRepo: string
   SessionTitle: string
   LastSeenWipAt: int64
@@ -101,6 +102,17 @@ let private branchFromData (data: Session.Data) =
   | true -> "(unknown)"
   | false -> data.GitBranch
 
+let private repoFromData (data: Session.Data) =
+  match isNull data.GitRepo with
+  | true -> ""
+  | false -> data.GitRepo
+
+let private isRepoOK (model: Model) =
+  match model.LocalRepo, model.GitRepo with
+  | "", _ -> false
+  | _, "" -> true
+  | local, session -> local = session
+
 let private lockFromData (data: Session.Data) =
   match isNull data.GoalLockOwner || data.GoalLockOwner = "" with
   | true -> None
@@ -125,6 +137,7 @@ let init (client: FirebaseClient) (sessionId: string) (user: string) (sessionDat
   Lock = lockFromData sessionData
   GitBranch = branchFromData sessionData
   LocalGitBranch = Git.readCurrentBranch ()
+  GitRepo = repoFromData sessionData
   LocalRepo = Git.readRepoName ()
   SessionTitle =
     match isNull sessionData.Title with
@@ -150,25 +163,40 @@ let private normalBindings: KeyBinding<Model, Msg> list = [
         Description = "edit goal"
         Message = Some EnterInsert
       })
-  KeyBinding.create 'b' "new branch" BeginCreateBranch
+  KeyBinding.dynamic (CharKey 'b') (fun model ->
+    match isRepoOK model with
+    | true -> {
+        Description = "new branch"
+        Message = Some BeginCreateBranch
+      }
+    | false -> {
+        Description = "new branch (wrong repo)"
+        Message = None
+      })
   KeyBinding.dynamic (CharKey 'S') (fun model ->
-    let help =
-      match model.LocalGitBranch = model.GitBranch with
-      | true -> "pull"
-      | false -> "sync branch"
+    match isRepoOK model with
+    | false -> {
+        Description = "sync branch (wrong repo)"
+        Message = None
+      }
+    | true ->
+      let help =
+        match model.LocalGitBranch = model.GitBranch with
+        | true -> "pull"
+        | false -> "sync branch"
 
-    {
-      Description = help
-      Message = Some BeginSync
-    })
+      {
+        Description = help
+        Message = Some BeginSync
+      })
   KeyBinding.dynamic (CharKey 'w') (fun model ->
-    match model.LocalGitBranch = model.GitBranch with
+    match isRepoOK model && model.LocalGitBranch = model.GitBranch with
     | true -> {
         Description = "WIP sync"
         Message = Some BeginWipSync
       }
     | false -> {
-        Description = "WIP sync (off branch)"
+        Description = "WIP sync (unavailable)"
         Message = None
       })
 ]
@@ -205,9 +233,9 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
   | Normal ->
     match key.KeyChar with
     | 'i' -> Some EnterInsert
-    | 'b' -> Some BeginCreateBranch
-    | 'S' -> Some BeginSync
-    | 'w' when model.LocalGitBranch = model.GitBranch -> Some BeginWipSync
+    | 'b' when isRepoOK model -> Some BeginCreateBranch
+    | 'S' when isRepoOK model -> Some BeginSync
+    | 'w' when isRepoOK model && model.LocalGitBranch = model.GitBranch -> Some BeginWipSync
     | _ -> None
   | BranchPopup { Stage = EditingName _ } ->
     match key.Key with
@@ -410,6 +438,13 @@ let update msg model =
         | false -> data.Goal
 
     let newGitBranch = branchFromData data
+    let newGitRepo = repoFromData data
+
+    let repoOK =
+      match model.LocalRepo, newGitRepo with
+      | "", _ -> false
+      | _, "" -> true
+      | local, session -> local = session
 
     let isRemoteWipPush =
       data.LastWipPushAt > model.LastSeenWipAt
@@ -419,6 +454,7 @@ let update msg model =
     let shouldAutoPull =
       isRemoteWipPush
       && model.InputMode = Normal
+      && repoOK
       && model.LocalGitBranch = newGitBranch
 
     let updated = {
@@ -427,6 +463,7 @@ let update msg model =
           GoalContent = goalContent
           Lock = lockFromData data
           GitBranch = newGitBranch
+          GitRepo = newGitRepo
           SessionTitle =
             match isNull data.Title with
             | true -> ""
@@ -446,8 +483,8 @@ let update msg model =
     updated, cmd
   | StateSaved -> model, []
   | BeginCreateBranch ->
-    match model.InputMode with
-    | Normal ->
+    match model.InputMode, isRepoOK model with
+    | Normal, true ->
       {
         model with
             InputMode = BranchPopup { Name = ""; Stage = EditingName None }
@@ -535,8 +572,8 @@ let update msg model =
     },
     []
   | BeginSync ->
-    match model.InputMode with
-    | Normal ->
+    match model.InputMode, isRepoOK model with
+    | Normal, true ->
       let onSessionBranch = model.LocalGitBranch = model.GitBranch
 
       {
@@ -546,7 +583,7 @@ let update msg model =
       syncCmd onSessionBranch model.GitBranch
     | _ -> model, []
   | BeginWipSync ->
-    match model.InputMode, model.LocalGitBranch = model.GitBranch with
+    match model.InputMode, isRepoOK model && model.LocalGitBranch = model.GitBranch with
     | Normal, true ->
       {
         model with
@@ -665,17 +702,27 @@ let widget (model: Model) : IWidget =
 
         ctx.Render(goalWidget, port "goal")
 
-        let repoLine =
-          match model.LocalRepo with
-          | "" -> "  Repo:    (unknown)"
-          | name -> sprintf "  Repo:    %s" name
+        let sessionRepoDisplay =
+          match model.GitRepo with
+          | "" -> "(unknown)"
+          | name -> name
 
-        ctx.Render(ofString repoLine :> IWidget, port "repo")
+        let repoLine =
+          match model.LocalRepo, model.GitRepo with
+          | "", _ -> sprintf "  Repo:    %s [red](NO REPOSITORY)[/]" sessionRepoDisplay
+          | _, "" -> sprintf "  Repo:    %s" sessionRepoDisplay
+          | local, session when local = session -> sprintf "  Repo:    %s" sessionRepoDisplay
+          | local, _ -> sprintf "  Repo:    %s [red](%s)[/]" sessionRepoDisplay local
+
+        ctx.Render(ofMarkup repoLine :> IWidget, port "repo")
 
         let branchLine =
-          match model.LocalGitBranch = "" || model.LocalGitBranch = model.GitBranch with
-          | true -> sprintf "  Branch:  %s" model.GitBranch
-          | false -> sprintf "  Branch:  %s [red](%s)[/]" model.GitBranch model.LocalGitBranch
+          match isRepoOK model with
+          | false -> ""
+          | true ->
+            match model.LocalGitBranch = "" || model.LocalGitBranch = model.GitBranch with
+            | true -> sprintf "  Branch:  %s" model.GitBranch
+            | false -> sprintf "  Branch:  %s [red](%s)[/]" model.GitBranch model.LocalGitBranch
 
         ctx.Render(ofMarkup branchLine :> IWidget, port "branch")
 

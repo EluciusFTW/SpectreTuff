@@ -149,7 +149,8 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
       | _ ->
         { model with InputMode = Browsing },
         Cmd.OfAsync.perform
-          (fun () -> Firebase.Sessions.create model.Client model.User trimmed (Git.readCurrentBranch ()))
+          (fun () ->
+            Firebase.Sessions.create model.Client model.User trimmed (Git.readCurrentBranch ()) (Git.readRepoName ()))
           ()
           CreateCompleted,
         None

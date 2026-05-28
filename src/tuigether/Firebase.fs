@@ -148,6 +148,7 @@ module Sessions =
     (user: string)
     (title: string)
     (gitBranch: string)
+    (gitRepo: string)
     : Async<Result<string, string>> =
     async {
       try
@@ -162,6 +163,7 @@ module Sessions =
           Session.Data.GoalLockOwner = null
           Session.Data.GoalLockedAt = 0L
           Session.Data.GitBranch = gitBranch
+          Session.Data.GitRepo = gitRepo
           Session.Data.LastWipPushAt = 0L
           Session.Data.LastWipPushBy = null
         }
