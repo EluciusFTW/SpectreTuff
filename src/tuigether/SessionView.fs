@@ -256,7 +256,7 @@ let private topRowLayout =
 let private workAreaLayout =
   layout "work-area"
   |> splitHorizontally [|
-    layout "info" |> withFixedSize (Some 7)
+    layout "info" |> withFixedSize (Some 8)
     layout "middle" |> withRatio 1
     layout "journey" |> withFixedSize (Some 7)
   |]

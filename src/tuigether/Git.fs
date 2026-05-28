@@ -56,6 +56,29 @@ let readCurrentBranch () =
   | Ok branch when branch <> "" -> branch
   | _ -> ""
 
+let private stripGitSuffix (text: string) =
+  match text.EndsWith(".git") with
+  | true -> text.Substring(0, text.Length - 4)
+  | false -> text
+
+let private lastPathSegment (text: string) =
+  match text.LastIndexOfAny([| '/'; ':' |]) with
+  | -1 -> text
+  | i -> text.Substring(i + 1)
+
+let readRepoName () =
+  let fromRemote =
+    match runGit "config --get remote.origin.url" with
+    | Ok url when url <> "" -> url.TrimEnd('/') |> stripGitSuffix |> lastPathSegment
+    | _ -> ""
+
+  match fromRemote with
+  | "" ->
+    match runGit "rev-parse --show-toplevel" with
+    | Ok path when path <> "" -> System.IO.Path.GetFileName(path.TrimEnd('/'))
+    | _ -> ""
+  | name -> name
+
 let createAndPushBranch (name: string) : Async<Result<unit, string>> =
   async {
     return

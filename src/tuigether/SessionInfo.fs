@@ -47,6 +47,7 @@ type Model = {
   Lock: Lock option
   GitBranch: string
   LocalGitBranch: string
+  LocalRepo: string
   SessionTitle: string
   LastSeenWipAt: int64
 }
@@ -124,6 +125,7 @@ let init (client: FirebaseClient) (sessionId: string) (user: string) (sessionDat
   Lock = lockFromData sessionData
   GitBranch = branchFromData sessionData
   LocalGitBranch = Git.readCurrentBranch ()
+  LocalRepo = Git.readRepoName ()
   SessionTitle =
     match isNull sessionData.Title with
     | true -> ""
@@ -595,6 +597,7 @@ let private infoLayout =
   layout "session-info"
   |> splitHorizontally [|
     layout "goal"
+    layout "repo" |> withFixedSize (Some 1)
     layout "branch" |> withFixedSize (Some 1)
     layout "started" |> withFixedSize (Some 1)
   |]
@@ -661,6 +664,13 @@ let widget (model: Model) : IWidget =
           :> IWidget
 
         ctx.Render(goalWidget, port "goal")
+
+        let repoLine =
+          match model.LocalRepo with
+          | "" -> "  Repo:    (unknown)"
+          | name -> sprintf "  Repo:    %s" name
+
+        ctx.Render(ofString repoLine :> IWidget, port "repo")
 
         let branchLine =
           match model.LocalGitBranch = "" || model.LocalGitBranch = model.GitBranch with
