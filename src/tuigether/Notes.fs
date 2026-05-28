@@ -563,7 +563,7 @@ type private NotesListItem(text: string) =
         | true -> Style(Color.Black, Color.Green)
         | false -> Style(Color.Green)
 
-      Text(LineExtensions.FromString(text, style))
+      Text(LineExtensions.FromString(" • " + text, style))
 
 let widget (model: Model) (isFocused: bool) : IWidget =
   match model.NoteMode with
@@ -586,7 +586,6 @@ let widget (model: Model) (isFocused: bool) : IWidget =
         | _, [] -> None
         | _ -> Some model.ListIndex
       )
-      |> withHighlightSymbol (LineExtensions.FromString("> ", Style Color.Green))
       |> wrapAround
       :> IWidget
 
