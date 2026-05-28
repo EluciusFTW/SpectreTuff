@@ -1,8 +1,8 @@
 # tuigether
 
-A real-time, multi-user TUI app for collaborative mob/pair programming sessions, built with F# + Elmish and Firebase Realtime Database.
+A real-time, multi-user TUI app for collaborative mob/pair programming sessions, built with F#, Elmish and SpectreTuff utilizing the Firebase Realtime Database.
 
-Features: shared Pomodoro timer, driver rotation, collaborative notes, todo list, session goals, presence visualization, and a break-time obstacle game.
+Features: shared Pomodoro timer, driver rotation, collaborative notes, todo list, session goals, presence visualization, git branch management.
 
 ## Running
 
@@ -10,6 +10,14 @@ Features: shared Pomodoro timer, driver rotation, collaborative notes, todo list
 # from the SpectreTuff repo root
 dotnet run --project src/tuigether
 ```
+
+To install as a standalone binary to `~/.local/bin/tuigether`, run the Claude command:
+
+```
+/install-tuigether
+```
+
+This builds a single-file framework-dependent Release binary and copies it into place.
 
 ## Configuration
 
@@ -37,8 +45,7 @@ Environment variables override the config file:
 | `TUIGETHER_LOG_DIR` | no | Directory for daily log files (default: `./logs`) |
 | `TUIGETHER_LOG_RETENTION_DAYS` | no | Days of logs to keep; `0` = today only (default: `14`) |
 
-## Architecture
-
+## Architecture: Deployment View
 ```
   Terminal A          Terminal B          Terminal C
  ┌──────────┐        ┌──────────┐        ┌──────────┐
@@ -58,7 +65,8 @@ Environment variables override the config file:
 
 Each client subscribes to the shared session tree and pushes local changes (timer state, notes, driver, presence) in real time. A simple lock record per document (notes, goals) prevents simultaneous edits.
 
-## Elmish MVU model
+## Application Architecture 
+### Elmish MVU model
 
 Elmish follows the Model-View-Update (MVU) pattern: the app state is a single immutable record, every change goes through a pure `update` function, and the result is re-rendered.
 
@@ -146,6 +154,41 @@ TimerMsg Start
                                       │
                                       ▼ (async resolves)
                                  TimerMsg StateSaved
+```
+
+### Git integration Module
+
+The session info panel shows the git repository and branch that the session is associated with. On joining, each client reads its local repo name and current branch and compares them against the session's stored values. A mismatch is highlighted in red.
+
+```
+  Repo:    SpectreTuff
+  Branch:  feature/firebase [red](main)[/]   ← local branch differs from session branch
+```
+
+### Branch actions (in the session info panel)
+
+| Key | Condition | Action |
+|---|---|---|
+| `b` | repo matches | Open popup — create a new branch locally and push it to origin; stores the branch name in the session |
+| `S` | repo matches | Sync: push if ahead on the session branch, pull if behind, or fetch + checkout if on a different branch |
+| `w` | repo matches, on session branch | WIP sync: stage all dirty files, commit as `WIP: <session title>`, and push |
+
+### Auto-pull
+
+When a teammate does a WIP sync, every other client that is on the same repo and the same branch automatically pulls the changes in the background (a sync popup appears briefly while it runs).
+
+```
+  Teammate presses w              Your client
+  ──────────────────              ───────────
+  stage + commit + push  ──────▶  Firebase: LastWipPushAt updated
+                                        │
+                                  SessionDataUpdated fires
+                                        │
+                                  same repo + same branch?
+                                        │ yes
+                                  SyncPopup RunningSync
+                                        │
+                                  git pull → SyncCompleted
 ```
 
 ### Notes locking flow
