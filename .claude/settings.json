@@ -2,6 +2,7 @@
   "permissions": {
     "allow": [
       "Bash(dotnet build src/**)",
+      "Bash(dotnet publish src/**)",
       "Bash(dotnet restore src/**)",
       "Bash(dotnet fsi **)",
       "Edit(src/**/*.fs)",
