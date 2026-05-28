@@ -115,7 +115,7 @@ let private listNormalBindings: KeyBinding<Model, Msg> list = [
   KeyBinding.createSpecial ConsoleKey.UpArrow "up" ListUp
   KeyBinding.createSpecial ConsoleKey.DownArrow "down" ListDown
   KeyBinding.create 'a' "add" AddItem
-  KeyBinding.create 'd' "delete" DeleteItem
+  KeyBinding.create 'x' "delete" DeleteItem
   KeyBinding.create 'c' "copy" CopyItem
   KeyBinding.create 'm' "→ freetext" SwitchToFreetext
 ]
@@ -149,9 +149,11 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
       | _ ->
         match key.KeyChar with
         | 'a' -> Some AddItem
-        | 'd' -> Some DeleteItem
+        | 'x' -> Some DeleteItem
         | 'c' -> Some CopyItem
         | 'm' -> Some SwitchToFreetext
+        | 'j' -> Some ListDown
+        | 'k' -> Some ListUp
         | _ -> None
 
 let capturesInput (model: Model) =

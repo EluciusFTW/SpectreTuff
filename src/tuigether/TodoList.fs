@@ -83,6 +83,8 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
       | 'x' -> Some Delete
       | 'u' -> Some MoveUp
       | 'd' -> Some MoveDown
+      | 'j' -> Some Down
+      | 'k' -> Some Up
       | _ -> None
 
 let capturesInput (model: Model) =

@@ -168,6 +168,9 @@ let private globalKeyToMsg (gMsg: GlobalKeys.Msg) : Msg =
   | GlobalKeys.Teleport -> JourneyMsg(Journey.TimerMsg Timer.SkipTimer)
   | GlobalKeys.NextDrive -> JourneyMsg Journey.SwitchDriver
 
+let private isShiftTab (key: ConsoleKeyInfo) =
+  key.Key = ConsoleKey.Tab && key.Modifiers.HasFlag(ConsoleModifiers.Shift)
+
 let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
   match capturesInput model with
   | true ->
@@ -180,6 +183,10 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
     GlobalKeys.handleKey key
     |> Option.map globalKeyToMsg
     |> Option.orElseWith (fun () -> tryFocusNumber key)
+    |> Option.orElseWith (fun () ->
+      match isShiftTab key with
+      | true -> Some(FocusPanel((model.Focus + 2) % 4 + 1))
+      | false -> None)
     |> Option.orElseWith (fun () -> KeyBinding.handleKey outerBindings key model)
     |> Option.orElseWith (fun () ->
       match model.Focus with
@@ -188,8 +195,21 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
       | 3 -> TodoList.handleKey key model.TodoList |> Option.map TodoListMsg
       | _ -> None)
 
+let private shiftTabHelp: IKeyMap =
+  { new IKeyMap with
+      member _.Help() =
+        seq {
+          Spectre.Tui.App.KeyBinding(Keys = ResizeArray [ KeyPress.For(Key.Tab).WithShift() ], Help = "prev panel")
+        }
+  }
+
 let keyMap (model: Model) : Spectre.Tui.App.IKeyMap =
-  KeyBinding.toKeyMap outerBindings model
+  let outer = KeyBinding.toKeyMap outerBindings model
+
+  { new IKeyMap with
+      member _.Help() =
+        Seq.append (outer.Help()) (shiftTabHelp.Help())
+  }
 
 let helpKeyMaps: IKeyMap list = [ GlobalKeys.keyMap ]
 
