@@ -52,8 +52,9 @@ let init (client: FirebaseClient) (user: string) (avatarName: string) (sessionId
   }
 
   let joinCmd = Cmd.OfAsync.perform (fun () -> Firebase.Users.join client sessionId user avatarName) () JoinCompleted
+  let goalPopupCmd = Cmd.ofMsg (SessionInfoMsg SessionInfo.MaybeShowGoalPopup)
 
-  model, joinCmd
+  model, Cmd.batch [ joinCmd; goalPopupCmd ]
 
 let update msg model : Model * Cmd<Msg> * OutMsg option =
   match msg with

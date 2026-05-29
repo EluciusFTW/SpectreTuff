@@ -27,6 +27,7 @@ type SyncPopupStage =
 type InputMode =
   | Normal
   | Insert
+  | GoalPopup
   | BranchPopup of BranchPopup
   | SyncPopup of SyncPopupStage
 
@@ -74,6 +75,8 @@ type Msg =
   | SyncCompleted of Result<unit, string>
   | WipSyncCompleted of Result<unit, string>
   | DismissSyncPopup
+  | MaybeShowGoalPopup
+  | CloseGoalPopup
 
 let private goalDebounceMs = 300
 let private autoExitInsertMs = 30_000
@@ -94,7 +97,8 @@ let private isLockedByOther (model: Model) =
 
 let isHoldingLock (model: Model) =
   match model.InputMode, model.Lock with
-  | Insert, Some l -> l.Owner = model.User
+  | Insert, Some l
+  | GoalPopup, Some l -> l.Owner = model.User
   | _ -> false
 
 let private branchFromData (data: Session.Data) =
@@ -219,6 +223,11 @@ let private syncFailedBindings: KeyBinding<Model, Msg> list = [
   KeyBinding.createSpecial ConsoleKey.Escape "dismiss" DismissSyncPopup
 ]
 
+let private goalPopupBindings: KeyBinding<Model, Msg> list = [
+  KeyBinding.createSpecial ConsoleKey.Enter "save & close" CloseGoalPopup
+  KeyBinding.createSpecial ConsoleKey.Escape "dismiss" CloseGoalPopup
+]
+
 let private emptyBindings: KeyBinding<Model, Msg> list = []
 
 let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
@@ -236,6 +245,13 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
     | 'b' when isRepoOK model -> Some BeginCreateBranch
     | 'S' when isRepoOK model -> Some BeginSync
     | 'w' when isRepoOK model && model.LocalGitBranch = model.GitBranch -> Some BeginWipSync
+    | _ -> None
+  | GoalPopup ->
+    match key.Key with
+    | ConsoleKey.Escape -> Some CloseGoalPopup
+    | ConsoleKey.Enter -> Some CloseGoalPopup
+    | ConsoleKey.Backspace -> Some TypeBackspace
+    | _ when key.KeyChar <> '\000' -> Some(TypeChar key.KeyChar)
     | _ -> None
   | BranchPopup { Stage = EditingName _ } ->
     match key.Key with
@@ -267,6 +283,7 @@ let keyMap (model: Model) =
     match model.InputMode with
     | Normal -> normalBindings
     | Insert -> insertModeBindings
+    | GoalPopup -> goalPopupBindings
     | BranchPopup { Stage = EditingName _ } -> branchEditBindings
     | BranchPopup { Stage = Submitting } -> emptyBindings
     | BranchPopup { Stage = CreateFailed _ } -> branchFailedBindings
@@ -431,7 +448,8 @@ let update msg model =
     // dispatched.
     let goalContent =
       match model.InputMode with
-      | Insert -> model.GoalContent
+      | Insert
+      | GoalPopup -> model.GoalContent
       | _ ->
         match isNull data.Goal with
         | true -> ""
@@ -627,8 +645,40 @@ let update msg model =
     match model.InputMode with
     | SyncPopup _ -> { model with InputMode = Normal }, []
     | _ -> model, []
+  | MaybeShowGoalPopup ->
+    match model.InputMode, model.GoalContent.Trim() = "", isLockedByOther model with
+    | Normal, true, false ->
+      let lock = {
+        Owner = model.User
+        LockedAt = nowMs ()
+      }
+
+      let updated = {
+        model with
+            InputMode = GoalPopup
+            Lock = Some lock
+      }
+
+      updated, saveGoalLockCmd updated
+    | _ -> model, []
+  | CloseGoalPopup ->
+    match model.InputMode with
+    | GoalPopup ->
+      let bumped = model.GoalSaveToken + 1
+
+      let updated = {
+        model with
+            InputMode = Normal
+            GoalSaveToken = bumped
+            Lock = None
+      }
+
+      updated, Cmd.batch [ saveGoalCmd updated; releaseGoalLockCmd updated ]
+    | _ -> model, []
 
 let subscriptions (_model: Model) = []
+
+let private goalLook = Look.fromColor Color.Yellow |> Look.withDecorations [ Decoration.Italic ]
 
 let private infoLayout =
   layout "session-info"
@@ -676,6 +726,28 @@ let private renderBranchPopup (popup: BranchPopup) : IWidget =
   |> withInnerWidget inner
   :> IWidget
 
+let private renderGoalPopup (goalContent: string) : IWidget =
+  let inputWidget: IWidget =
+    textBox goalContent
+    |> withMode TextBoxMode.SingleLine
+    |> withPlaceholder "what are you working on?"
+    |> focused
+    |> withCursorAtEnd
+    :> IWidget
+
+  let inner =
+    { new IWidget with
+        member _.Render(innerCtx) =
+          let port = getPort innerCtx.Viewport popupInnerLayout
+          innerCtx.Render(inputWidget, port "input")
+          innerCtx.Render(ofString "" :> IWidget, port "status")
+    }
+
+  box (Look.fromColor Color.Green)
+  |> withTitle "Session goal"
+  |> withInnerWidget inner
+  :> IWidget
+
 let private renderSyncPopup (stage: SyncPopupStage) (target: string) : IWidget =
   let body: IWidget =
     match stage with
@@ -695,12 +767,13 @@ let widget (model: Model) : IWidget =
         let goalWidget =
           textBox model.GoalContent
           |> withMode TextBoxMode.MultiLine
+          |> TextBoxes.withLook goalLook
           |> (match model.InputMode with
               | Insert -> focused >> withCursorAtEnd
               | _ -> unfocused)
           :> IWidget
 
-        ctx.Render(goalWidget, port "goal")
+        ctx.Render(goalWidget, View.padWith (View.padding 1 0 0 0) (port "goal"))
 
         let sessionRepoDisplay =
           match model.GitRepo with
@@ -734,6 +807,7 @@ let widget (model: Model) : IWidget =
           ctx.Render(popup 60 6 |> withPopupContent (renderBranchPopup branchState) :> IWidget)
         | SyncPopup stage ->
           ctx.Render(popup 60 5 |> withPopupContent (renderSyncPopup stage model.GitBranch) :> IWidget)
+        | GoalPopup -> ctx.Render(popup 60 5 |> withPopupContent (renderGoalPopup model.GoalContent) :> IWidget)
         | Normal
         | Insert -> ()
   }
