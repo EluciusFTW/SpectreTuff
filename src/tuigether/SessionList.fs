@@ -58,6 +58,11 @@ let private sortSessions sessions =
   sessions
   |> List.sortByDescending (fun (_, data: Session.Data) -> data.StartedAt)
 
+let private clampIndex (sessions: 'a list) (index: int) =
+  match sessions with
+  | [] -> 0
+  | _ -> max 0 (min index (sessions.Length - 1))
+
 let capturesInput (model: Model) =
   match model.InputMode with
   | Naming _ -> true
@@ -163,9 +168,12 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
       let sessionId, _ = model.Sessions.[model.SelectedIndex]
       model, Cmd.OfAsync.perform (fun () -> Firebase.Sessions.delete model.Client sessionId) () DeleteCompleted, None
   | FirebaseEvent(Firebase.SessionsLoaded sessions) ->
+    let sorted = sortSessions sessions
+
     {
       model with
-          Sessions = sortSessions sessions
+          Sessions = sorted
+          SelectedIndex = clampIndex sorted model.SelectedIndex
           Status = "connected"
     },
     [],
@@ -184,9 +192,12 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
     None
   | FirebaseEvent(Firebase.SessionChanged _) -> model, [], None
   | FirebaseEvent(Firebase.SessionRemoved id) ->
+    let remaining = model.Sessions |> List.filter (fun (k, _) -> k <> id)
+
     {
       model with
-          Sessions = model.Sessions |> List.filter (fun (k, _) -> k <> id)
+          Sessions = remaining
+          SelectedIndex = clampIndex remaining model.SelectedIndex
           ConnectedUsers = model.ConnectedUsers |> Map.remove id
     },
     [],

@@ -122,12 +122,15 @@ module Sessions =
 
     let onNext (ev: FirebaseEvent<Session.Data>) =
       try
-        match String.IsNullOrEmpty ev.Key, isNull (box ev.Object) with
-        | false, false ->
+        match String.IsNullOrEmpty ev.Key with
+        | true -> ()
+        | false ->
           match ev.EventType with
           | FirebaseEventType.Delete -> dispatch (SessionRemoved ev.Key)
-          | _ -> dispatch (SessionChanged(ev.Key, ev.Object))
-        | _ -> ()
+          | _ ->
+            match isNull (box ev.Object) with
+            | true -> ()
+            | false -> dispatch (SessionChanged(ev.Key, ev.Object))
       with e ->
         dispatch (ConnectionError(formatError e))
 
