@@ -81,8 +81,19 @@ let append (entry: string) (model: Model) =
 let line (entry: string) =
   lock fileLock (fun () -> writeLine entry)
 
+// Cap how many trailing entries are rendered per frame. The panel auto-scrolls
+// to the bottom, so older lines are off-screen anyway. Rendering the whole log
+// every frame is O(entries) and, with the uncapped framerate, pegs the CPU and
+// churns memory once the log gets long — freezing the app on open.
+let private maxRenderedEntries = 500
+
 let view (model: Model) (ctx: RenderContext) (area: Rectangle) =
-  let content = model.Entries |> Seq.map (fun entry -> TextLine(TextSpan entry)) |> paragraph
+  let entries =
+    match model.Entries.Count with
+    | count when count > maxRenderedEntries -> model.Entries.GetRange(count - maxRenderedEntries, maxRenderedEntries)
+    | _ -> model.Entries
+
+  let content = entries |> Seq.map (fun entry -> TextLine(TextSpan entry)) |> paragraph
   let logView = scrollView content
   logView.ScrollToBottom()
   ctx.Render(box (Look.fromColor Color.Grey) |> withTitle "Log" |> withInnerWidget logView, area)
