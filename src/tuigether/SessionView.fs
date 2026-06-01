@@ -1,6 +1,7 @@
 module SessionView
 
 open System
+open Dependencies
 open Elmish
 open Firebase.Database
 open Spectre.Tui
@@ -36,14 +37,7 @@ type Msg =
 
 type OutMsg = LeaveSession of sessionId: string * user: string * wasStarted: bool
 
-let init
-  (client: FirebaseClient)
-  (user: string)
-  (avatarName: string)
-  (sessionId: string)
-  (sessionData: Session.Data)
-  (notify: string -> unit)
-  =
+let init (client: FirebaseClient) (user: string) (avatarName: string) (sessionId: string) (sessionData: Session.Data) =
   let model = {
     Client = client
     SessionId = sessionId
@@ -55,7 +49,7 @@ let init
     Notes = Notes.init client sessionId user
     TodoList = TodoList.init client sessionId
     SessionInfo = SessionInfo.init client sessionId user sessionData
-    Journey = Journey.init client sessionId user avatarName sessionData notify
+    Journey = Journey.init client sessionId user avatarName sessionData
   }
 
   let joinCmd = Cmd.OfAsync.perform (fun () -> Firebase.Users.join client sessionId user avatarName) () JoinCompleted
@@ -63,7 +57,7 @@ let init
 
   model, Cmd.batch [ joinCmd; goalPopupCmd ]
 
-let update msg model : Model * Cmd<Msg> * OutMsg option =
+let update (deps: Dependencies) msg model : Model * Cmd<Msg> * OutMsg option =
   match msg with
   | GoBack ->
     let wasStarted = Session.Status.fromString model.SessionData.Status = Session.Status.Started
@@ -113,10 +107,10 @@ let update msg model : Model * Cmd<Msg> * OutMsg option =
     let m, cmd = SessionInfo.update sMsg model.SessionInfo
     { model with SessionInfo = m }, Cmd.map SessionInfoMsg cmd, None
   | JourneyMsg jMsg ->
-    let m, cmd = Journey.update jMsg model.Journey
+    let m, cmd = Journey.update deps jMsg model.Journey
     { model with Journey = m }, Cmd.map JourneyMsg cmd, None
   | UpdateSession(Some data) ->
-    let journeyM, journeyCmd = Journey.update (Journey.UpdateSession data) model.Journey
+    let journeyM, journeyCmd = Journey.update deps (Journey.UpdateSession data) model.Journey
     let infoM, infoCmd = SessionInfo.update (SessionInfo.SessionDataUpdated data) model.SessionInfo
 
     {

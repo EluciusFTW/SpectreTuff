@@ -1,6 +1,7 @@
 module Application
 
 open System
+open Dependencies
 open Elmish
 open Firebase.Database
 open Spectre.Tui
@@ -21,7 +22,6 @@ type Model = {
   LogVisible: bool
   LogModel: Log.Model
   Exiting: bool
-  Notify: string -> unit
 }
 
 type Msg =
@@ -107,7 +107,7 @@ let private buildPanels (model: Model) : Panel list =
       }
     ]
 
-let init (client: FirebaseClient) (user: string) (notify: string -> unit) () =
+let init (client: FirebaseClient) (user: string) () =
   let listModel, listCmd = SessionList.init client user ()
 
   let avatarName = Journey.resolveName ()
@@ -121,7 +121,6 @@ let init (client: FirebaseClient) (user: string) (notify: string -> unit) () =
     LogVisible = false
     LogModel = Log.init ()
     Exiting = false
-    Notify = notify
   },
   Cmd.map SessionListMsg listCmd
 
@@ -138,7 +137,7 @@ let private handleSessionListOutMsg
   : Model * Cmd<Msg> =
   match out with
   | Some(SessionList.OpenSession(sessionId, sessionData)) ->
-    let viewModel, viewCmd = SessionView.init client user avatarName sessionId sessionData model.Notify
+    let viewModel, viewCmd = SessionView.init client user avatarName sessionId sessionData
 
     {
       model with
@@ -170,7 +169,7 @@ let private handleSessionViewOutMsg
     { model with Page = SessionListPage }, leaveFinalizeCmd client sessionId user wasStarted
   | None -> model, []
 
-let update (client: FirebaseClient) (user: string) msg model =
+let update (deps: Dependencies) (user: string) msg model =
   match msg with
   | InputMsg(Input.KeyPressed key) ->
     let panels = buildPanels model
@@ -197,15 +196,15 @@ let update (client: FirebaseClient) (user: string) msg model =
     let listModel, listCmd, outMsg = SessionList.update lMsg model.SessionList
 
     let modelAfterList = { model with SessionList = listModel }
-    let modelAfterOut, outCmd = handleSessionListOutMsg client user model.AvatarName modelAfterList outMsg
+    let modelAfterOut, outCmd = handleSessionListOutMsg deps.Client user model.AvatarName modelAfterList outMsg
     modelAfterOut, Cmd.batch [ Cmd.map SessionListMsg listCmd; outCmd ]
 
   | SessionViewMsg vMsg ->
     match model.Page with
     | SessionViewPage viewModel ->
-      let m, sessionCmd, outMsg = SessionView.update vMsg viewModel
+      let m, sessionCmd, outMsg = SessionView.update deps vMsg viewModel
       let modelAfterView = { model with Page = SessionViewPage m }
-      let modelAfterOut, outCmd = handleSessionViewOutMsg client modelAfterView outMsg
+      let modelAfterOut, outCmd = handleSessionViewOutMsg deps.Client modelAfterView outMsg
       modelAfterOut, Cmd.batch [ Cmd.map SessionViewMsg sessionCmd; outCmd ]
     | _ -> model, []
 

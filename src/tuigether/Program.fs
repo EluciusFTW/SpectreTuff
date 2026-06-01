@@ -1,4 +1,5 @@
 open System
+open Dependencies
 
 match Config.load () with
 | Error message ->
@@ -28,9 +29,11 @@ match Config.load () with
     | true -> Notification.send
     | false -> fun _ -> ()
 
+  let deps: Dependencies = { Client = client; Notify = notify }
+
   Elmish.Program.mkProgram
-    (Application.init client settings.TuigetherUser notify)
-    (Application.update client settings.TuigetherUser)
+    (Application.init client settings.TuigetherUser)
+    (Application.update deps settings.TuigetherUser)
     (Application.view renderer)
   |> Elmish.Program.withSubscription (fun model ->
     Input.subscription Application.InputMsg model

@@ -1,6 +1,7 @@
 module Journey
 
 open System
+open Dependencies
 open Elmish
 open Firebase.Database
 open Spectre.Console
@@ -88,14 +89,7 @@ let private removeUser (userName: string) (model: Model) : Model =
             | other -> other
     }
 
-let init
-  (client: FirebaseClient)
-  (sessionId: string)
-  (currentUser: string)
-  (avatarName: string)
-  (data: Session.Data)
-  (notify: string -> unit)
-  =
+let init (client: FirebaseClient) (sessionId: string) (currentUser: string) (avatarName: string) (data: Session.Data) =
   let myCreature = creatureByName avatarName
 
   let me = {
@@ -114,7 +108,7 @@ let init
           Creature = creatureByName data.ActiveDriver
         }
     CurrentUser = me
-    Timer = Timer.init client sessionId notify
+    Timer = Timer.init client sessionId
     Persistence = {
       Client = client
       SessionId = sessionId
@@ -127,16 +121,17 @@ let private activeDriverCmd (model: Model) (driver: string option) : Cmd<Msg> =
     ()
     (fun () -> ActiveDriverSaved)
 
-let private feedTimer (model: Model) : Timer.Model * Cmd<Msg> =
+let private feedTimer (deps: Dependencies) (model: Model) : Timer.Model * Cmd<Msg> =
   let connectedUsers = model.Users |> List.map (fun u -> u.Name)
   let activeDriver = model.ActiveDriver |> Option.map (fun u -> u.Name)
   let userAvatarMap = model.Users |> List.map (fun u -> u.Name, u.Creature) |> Map.ofList
 
-  let timerM, timerCmd = Timer.update (Timer.SessionUpdated(connectedUsers, activeDriver, userAvatarMap)) model.Timer
+  let timerM, timerCmd =
+    Timer.update deps (Timer.SessionUpdated(connectedUsers, activeDriver, userAvatarMap)) model.Timer
 
   timerM, Cmd.map TimerMsg timerCmd
 
-let update msg model =
+let update (deps: Dependencies) msg model =
   match msg with
   | UpdateSession data ->
     let withDriver = {
@@ -147,7 +142,7 @@ let update msg model =
             | false -> model.Users |> List.tryFind (fun u -> u.Name = data.ActiveDriver)
     }
 
-    let timerM, timerCmd = feedTimer withDriver
+    let timerM, timerCmd = feedTimer deps withDriver
     { withDriver with Timer = timerM }, timerCmd
 
   | RemoteUserChanged(user, presence) -> upsertUser user presence model, []
@@ -183,7 +178,7 @@ let update msg model =
     m, Cmd.batch [ activeDriverCmd m nextDriverName; Cmd.ofMsg (TimerMsg Timer.Start) ]
 
   | TimerMsg tMsg ->
-    let m, cmd = Timer.update tMsg model.Timer
+    let m, cmd = Timer.update deps tMsg model.Timer
     { model with Timer = m }, Cmd.map TimerMsg cmd
 
 let private subMap (wrap: 'a -> 'b) (subs: (string list * (Dispatch<'a> -> IDisposable)) list) =

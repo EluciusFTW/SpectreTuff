@@ -1,6 +1,7 @@
 module Timer
 
 open System
+open Dependencies
 open Elmish
 open Firebase.Database
 open Spectre.Console
@@ -35,7 +36,6 @@ type Model = {
   UserAvatars: Map<string, Creature>
   TickEpoch: int
   Persistence: Persistence
-  Notify: string -> unit
 }
 
 type Msg =
@@ -73,7 +73,7 @@ let private breakTickCmd = Cmd.OfAsync.perform (fun () -> async { do! Async.Slee
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
-let init (client: FirebaseClient) (sessionId: string) (notify: string -> unit) = {
+let init (client: FirebaseClient) (sessionId: string) = {
   Remaining = workDuration
   Phase = Work
   State = Idle
@@ -85,7 +85,6 @@ let init (client: FirebaseClient) (sessionId: string) (notify: string -> unit) =
     Client = client
     SessionId = sessionId
   }
-  Notify = notify
 }
 
 let resetForDriver (previous: Model) (driver: string option) (users: string list) (avatars: Map<string, Creature>) = {
@@ -97,7 +96,6 @@ let resetForDriver (previous: Model) (driver: string option) (users: string list
   UserAvatars = avatars
   TickEpoch = previous.TickEpoch + 1
   Persistence = previous.Persistence
-  Notify = previous.Notify
 }
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
@@ -115,15 +113,15 @@ let private saveCmd (model: Model) : Cmd<Msg> =
 
 // ─── Update ──────────────────────────────────────────────────────────────────
 
-let update msg model =
+let update (deps: Dependencies) msg model =
   match msg with
   | Start ->
     match model.State with
     | Idle
     | Paused ->
       match model.State with
-      | Idle -> model.Notify "Work started!"
-      | _ -> model.Notify "Work resumed"
+      | Idle -> deps.Notify "Work started!"
+      | _ -> deps.Notify "Work resumed"
 
       let epoch = model.TickEpoch + 1
 
@@ -136,7 +134,7 @@ let update msg model =
       m, Cmd.batch [ tickCmd epoch; saveCmd m ]
     | _ -> model, []
   | Stop ->
-    model.Notify "Timer stopped"
+    deps.Notify "Timer stopped"
 
     let m = {
       model with
@@ -148,7 +146,7 @@ let update msg model =
   | Pause ->
     match model.State with
     | Running ->
-      model.Notify "Paused"
+      deps.Notify "Paused"
 
       let m = {
         model with
@@ -170,7 +168,7 @@ let update msg model =
         { model with Remaining = next }, tickCmd model.TickEpoch
     | _ -> model, []
   | WorkFinished ->
-    model.Notify "Drive finished — driver change, break started!"
+    deps.Notify "Drive finished — driver change, break started!"
 
     let m = {
       model with
@@ -182,7 +180,7 @@ let update msg model =
     match model.State with
     | Running
     | Paused ->
-      model.Notify "Drive skipped — driver change, break started!"
+      deps.Notify "Drive skipped — driver change, break started!"
 
       let m = {
         model with
@@ -221,7 +219,7 @@ let update msg model =
         breakTickCmd
     | _ -> model, []
   | BreakFinished ->
-    model.Notify "Break over!"
+    deps.Notify "Break over!"
 
     let m = {
       model with
@@ -234,7 +232,7 @@ let update msg model =
   | SkipPause ->
     match model.State with
     | Breaking _ ->
-      model.Notify "Break skipped!"
+      deps.Notify "Break skipped!"
 
       let m = {
         model with

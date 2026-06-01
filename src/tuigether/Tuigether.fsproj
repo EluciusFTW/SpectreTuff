@@ -23,6 +23,7 @@
     <Compile Include="Keymap.fs" />
     <Compile Include="GlobalKeys.fs" />
     <Compile Include="Firebase.fs" />
+    <Compile Include="Dependencies.fs" />
     <Compile Include="Log.fs" />
     <Compile Include="Notes.fs" />
     <Compile Include="TodoList.fs" />
