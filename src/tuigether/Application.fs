@@ -21,6 +21,7 @@ type Model = {
   LogVisible: bool
   LogModel: Log.Model
   Exiting: bool
+  NotificationsEnabled: bool
 }
 
 type Msg =
@@ -106,7 +107,7 @@ let private buildPanels (model: Model) : Panel list =
       }
     ]
 
-let init (client: FirebaseClient) (user: string) () =
+let init (client: FirebaseClient) (user: string) (notificationsEnabled: bool) () =
   let listModel, listCmd = SessionList.init client user ()
 
   let avatarName = Journey.resolveName ()
@@ -120,6 +121,7 @@ let init (client: FirebaseClient) (user: string) () =
     LogVisible = false
     LogModel = Log.init ()
     Exiting = false
+    NotificationsEnabled = notificationsEnabled
   },
   Cmd.map SessionListMsg listCmd
 
@@ -136,7 +138,7 @@ let private handleSessionListOutMsg
   : Model * Cmd<Msg> =
   match out with
   | Some(SessionList.OpenSession(sessionId, sessionData)) ->
-    let viewModel, viewCmd = SessionView.init client user avatarName sessionId sessionData
+    let viewModel, viewCmd = SessionView.init client user avatarName sessionId sessionData model.NotificationsEnabled
 
     {
       model with

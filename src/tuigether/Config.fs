@@ -9,12 +9,14 @@ type ConfigFile = {
   FirebaseUrl: string
   FirebaseSecret: string
   TuigetherUser: string
+  NotificationsEnabled: Nullable<bool>
 }
 
 type Settings = {
   FirebaseUrl: string
   FirebaseSecret: string
   TuigetherUser: string
+  NotificationsEnabled: bool
 }
 
 let private configPath () =
@@ -24,7 +26,8 @@ let private templateJson =
   """{
   "firebaseUrl": "",
   "firebaseSecret": "",
-  "tuigetherUser": ""
+  "tuigetherUser": "",
+  "notificationsEnabled": true
 }
 """
 
@@ -71,6 +74,7 @@ let load () : Result<Settings, string> =
         FirebaseUrl = url
         FirebaseSecret = secret
         TuigetherUser = user
+        NotificationsEnabled = file.NotificationsEnabled |> Option.ofNullable |> Option.defaultValue true
       }
     | _ ->
       Error(

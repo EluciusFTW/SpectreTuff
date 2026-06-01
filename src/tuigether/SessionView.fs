@@ -36,7 +36,14 @@ type Msg =
 
 type OutMsg = LeaveSession of sessionId: string * user: string * wasStarted: bool
 
-let init (client: FirebaseClient) (user: string) (avatarName: string) (sessionId: string) (sessionData: Session.Data) =
+let init
+  (client: FirebaseClient)
+  (user: string)
+  (avatarName: string)
+  (sessionId: string)
+  (sessionData: Session.Data)
+  (notificationsEnabled: bool)
+  =
   let model = {
     Client = client
     SessionId = sessionId
@@ -48,7 +55,7 @@ let init (client: FirebaseClient) (user: string) (avatarName: string) (sessionId
     Notes = Notes.init client sessionId user
     TodoList = TodoList.init client sessionId
     SessionInfo = SessionInfo.init client sessionId user sessionData
-    Journey = Journey.init client sessionId user avatarName sessionData
+    Journey = Journey.init client sessionId user avatarName sessionData notificationsEnabled
   }
 
   let joinCmd = Cmd.OfAsync.perform (fun () -> Firebase.Users.join client sessionId user avatarName) () JoinCompleted

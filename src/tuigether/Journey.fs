@@ -88,7 +88,14 @@ let private removeUser (userName: string) (model: Model) : Model =
             | other -> other
     }
 
-let init (client: FirebaseClient) (sessionId: string) (currentUser: string) (avatarName: string) (data: Session.Data) =
+let init
+  (client: FirebaseClient)
+  (sessionId: string)
+  (currentUser: string)
+  (avatarName: string)
+  (data: Session.Data)
+  (notificationsEnabled: bool)
+  =
   let myCreature = creatureByName avatarName
 
   let me = {
@@ -107,7 +114,7 @@ let init (client: FirebaseClient) (sessionId: string) (currentUser: string) (ava
           Creature = creatureByName data.ActiveDriver
         }
     CurrentUser = me
-    Timer = Timer.init client sessionId
+    Timer = Timer.init client sessionId notificationsEnabled
     Persistence = {
       Client = client
       SessionId = sessionId

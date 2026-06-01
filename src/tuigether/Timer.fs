@@ -36,6 +36,7 @@ type Model = {
   UserAvatars: Map<string, Creature>
   TickEpoch: int
   Persistence: Persistence
+  NotificationsEnabled: bool
 }
 
 type Msg =
@@ -107,9 +108,14 @@ let private sendNotification (title: string) (message: string) =
   with _ ->
     ()
 
+let private notifyIf (enabled: bool) (title: string) (message: string) =
+  match enabled with
+  | true -> sendNotification title message
+  | false -> ()
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 
-let init (client: FirebaseClient) (sessionId: string) = {
+let init (client: FirebaseClient) (sessionId: string) (notificationsEnabled: bool) = {
   Remaining = workDuration
   Phase = Work
   State = Idle
@@ -121,6 +127,7 @@ let init (client: FirebaseClient) (sessionId: string) = {
     Client = client
     SessionId = sessionId
   }
+  NotificationsEnabled = notificationsEnabled
 }
 
 let resetForDriver (previous: Model) (driver: string option) (users: string list) (avatars: Map<string, Creature>) = {
@@ -132,6 +139,7 @@ let resetForDriver (previous: Model) (driver: string option) (users: string list
   UserAvatars = avatars
   TickEpoch = previous.TickEpoch + 1
   Persistence = previous.Persistence
+  NotificationsEnabled = previous.NotificationsEnabled
 }
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
@@ -156,8 +164,8 @@ let update msg model =
     | Idle
     | Paused ->
       match model.State with
-      | Idle -> sendNotification "tuigether" "Work started!"
-      | _ -> sendNotification "tuigether" "Work resumed"
+      | Idle -> notifyIf model.NotificationsEnabled "tuigether" "Work started!"
+      | _ -> notifyIf model.NotificationsEnabled "tuigether" "Work resumed"
 
       let epoch = model.TickEpoch + 1
 
@@ -170,7 +178,7 @@ let update msg model =
       m, Cmd.batch [ tickCmd epoch; saveCmd m ]
     | _ -> model, []
   | Stop ->
-    sendNotification "tuigether" "Timer stopped"
+    notifyIf model.NotificationsEnabled "tuigether" "Timer stopped"
 
     let m = {
       model with
@@ -182,7 +190,7 @@ let update msg model =
   | Pause ->
     match model.State with
     | Running ->
-      sendNotification "tuigether" "Paused"
+      notifyIf model.NotificationsEnabled "tuigether" "Paused"
 
       let m = {
         model with
@@ -204,7 +212,7 @@ let update msg model =
         { model with Remaining = next }, tickCmd model.TickEpoch
     | _ -> model, []
   | WorkFinished ->
-    sendNotification "tuigether" "Drive finished — driver change, break started!"
+    notifyIf model.NotificationsEnabled "tuigether" "Drive finished — driver change, break started!"
 
     let m = {
       model with
@@ -216,7 +224,7 @@ let update msg model =
     match model.State with
     | Running
     | Paused ->
-      sendNotification "tuigether" "Drive skipped — driver change, break started!"
+      notifyIf model.NotificationsEnabled "tuigether" "Drive skipped — driver change, break started!"
 
       let m = {
         model with
@@ -255,7 +263,7 @@ let update msg model =
         breakTickCmd
     | _ -> model, []
   | BreakFinished ->
-    sendNotification "tuigether" "Break over!"
+    notifyIf model.NotificationsEnabled "tuigether" "Break over!"
 
     let m = {
       model with
@@ -268,7 +276,7 @@ let update msg model =
   | SkipPause ->
     match model.State with
     | Breaking _ ->
-      sendNotification "tuigether" "Break skipped!"
+      notifyIf model.NotificationsEnabled "tuigether" "Break skipped!"
 
       let m = {
         model with

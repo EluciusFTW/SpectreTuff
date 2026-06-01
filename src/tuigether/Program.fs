@@ -24,7 +24,7 @@ match Config.load () with
   renderer.NoTargetFps()
 
   Elmish.Program.mkProgram
-    (Application.init client settings.TuigetherUser)
+    (Application.init client settings.TuigetherUser settings.NotificationsEnabled)
     (Application.update client settings.TuigetherUser)
     (Application.view renderer)
   |> Elmish.Program.withSubscription (fun model ->
