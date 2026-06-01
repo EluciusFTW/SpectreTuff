@@ -77,6 +77,10 @@ let append (entry: string) (model: Model) =
     model.Entries.Add entry
     writeLine entry)
 
+// File-only log line for code with no Log.Model in scope.
+let line (entry: string) =
+  lock fileLock (fun () -> writeLine entry)
+
 let view (model: Model) (ctx: RenderContext) (area: Rectangle) =
   let content = model.Entries |> Seq.map (fun entry -> TextLine(TextSpan entry)) |> paragraph
   let logView = scrollView content

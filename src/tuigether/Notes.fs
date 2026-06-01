@@ -172,39 +172,48 @@ let keyMap (model: Model) =
 
   KeyBinding.toKeyMap bindings model
 
-let private copyToClipboard (text: string) =
+// On Linux, order by display server: xclip exits non-zero under Wayland without
+// throwing, so the wrong-server tool is only a last-resort fallback.
+let private clipboardCandidates () : (string * string) list =
+  match RuntimeInformation.IsOSPlatform OSPlatform.Windows, RuntimeInformation.IsOSPlatform OSPlatform.OSX with
+  | true, _ -> [ "clip", "" ]
+  | _, true -> [ "pbcopy", "" ]
+  | _ ->
+    let xclip = "xclip", "-selection clipboard"
+    let xsel = "xsel", "--clipboard --input"
+    let wlCopy = "wl-copy", ""
+
+    match Environment.GetEnvironmentVariable "WAYLAND_DISPLAY" with
+    | null
+    | "" -> [ xclip; xsel; wlCopy ]
+    | _ -> [ wlCopy; xclip; xsel ]
+
+let private tryCopyWith (fileName: string) (arguments: string) (text: string) : bool =
   try
     let psi = Diagnostics.ProcessStartInfo()
+    psi.FileName <- fileName
+    psi.Arguments <- arguments
     psi.UseShellExecute <- false
     psi.RedirectStandardInput <- true
 
-    match RuntimeInformation.IsOSPlatform OSPlatform.Windows, RuntimeInformation.IsOSPlatform OSPlatform.OSX with
-    | true, _ ->
-      psi.FileName <- "cmd"
-      psi.Arguments <- "/c clip"
-    | _, true -> psi.FileName <- "pbcopy"
-    | _ ->
-      psi.FileName <- "xclip"
-      psi.Arguments <- "-selection clipboard"
-
-    let proc = Diagnostics.Process.Start(psi)
-    proc.StandardInput.Write(text)
+    use proc = Diagnostics.Process.Start psi
+    proc.StandardInput.Write text
     proc.StandardInput.Close()
     proc.WaitForExit()
+    proc.ExitCode = 0
   with _ ->
-    match RuntimeInformation.IsOSPlatform OSPlatform.Linux with
-    | true ->
-      try
-        let psi = Diagnostics.ProcessStartInfo("wl-copy")
-        psi.UseShellExecute <- false
-        psi.RedirectStandardInput <- true
-        let proc = Diagnostics.Process.Start(psi)
-        proc.StandardInput.Write(text)
-        proc.StandardInput.Close()
-        proc.WaitForExit()
-      with _ ->
-        ()
-    | false -> ()
+    false
+
+let private copyToClipboard (text: string) : Result<string, string> =
+  let rec attempt remaining =
+    match remaining with
+    | [] -> Error "no working clipboard tool found (install xclip, xsel, or wl-copy)"
+    | (fileName, arguments) :: rest ->
+      match tryCopyWith fileName arguments text with
+      | true -> Ok fileName
+      | false -> attempt rest
+
+  attempt (clipboardCandidates ())
 
 let init (client: FirebaseClient) (sessionId: string) (user: string) = {
   NoteMode = Freetext
@@ -473,7 +482,10 @@ let update msg model =
   | CopyItem ->
     match model.ListItems with
     | [] -> ()
-    | _ -> copyToClipboard model.ListItems.[model.ListIndex].Text
+    | _ ->
+      match copyToClipboard model.ListItems.[model.ListIndex].Text with
+      | Ok tool -> Log.line (sprintf "copied list item to clipboard via %s" tool)
+      | Error message -> Log.line (sprintf "clipboard copy failed: %s" message)
 
     model, []
   | RemoteStateLoaded(Some state) ->
