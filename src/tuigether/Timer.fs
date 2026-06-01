@@ -1,6 +1,7 @@
 module Timer
 
 open System
+open System.Runtime.InteropServices
 open Elmish
 open Firebase.Database
 open Spectre.Console
@@ -72,13 +73,36 @@ let private breakTickCmd = Cmd.OfAsync.perform (fun () -> async { do! Async.Slee
 
 // ─── Notification ────────────────────────────────────────────────────────────
 
-let private sendNotification () =
+let private windowsToastScript (title: string) (message: string) =
+  let escape (value: string) =
+    value.Replace("'", "''")
+
+  sprintf
+    "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); $texts = $template.GetElementsByTagName('text'); $texts.Item(0).AppendChild($template.CreateTextNode('%s')) | Out-Null; $texts.Item(1).AppendChild($template.CreateTextNode('%s')) | Out-Null; $toast = [Windows.UI.Notifications.ToastNotification]::new($template); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('tuigether').Show($toast)"
+    (escape title)
+    (escape message)
+
+let private sendNotification (title: string) (message: string) =
   try
     let psi = Diagnostics.ProcessStartInfo()
-    psi.FileName <- "osascript"
-    psi.ArgumentList.Add("-e")
-    psi.ArgumentList.Add("display notification \"Fahrerwechsel!\" with title \"tuigether\"")
+
+    match RuntimeInformation.IsOSPlatform OSPlatform.OSX, RuntimeInformation.IsOSPlatform OSPlatform.Linux with
+    | true, _ ->
+      psi.FileName <- "osascript"
+      psi.ArgumentList.Add("-e")
+      psi.ArgumentList.Add(sprintf "display notification \"%s\" with title \"%s\"" message title)
+    | _, true ->
+      psi.FileName <- "notify-send"
+      psi.ArgumentList.Add(title)
+      psi.ArgumentList.Add(message)
+    | _ ->
+      psi.FileName <- "powershell"
+      psi.ArgumentList.Add("-NoProfile")
+      psi.ArgumentList.Add("-Command")
+      psi.ArgumentList.Add(windowsToastScript title message)
+
     psi.UseShellExecute <- false
+    psi.CreateNoWindow <- true
     Diagnostics.Process.Start(psi) |> ignore
   with _ ->
     ()
@@ -131,6 +155,10 @@ let update msg model =
     match model.State with
     | Idle
     | Paused ->
+      match model.State with
+      | Idle -> sendNotification "tuigether" "Work started!"
+      | _ -> sendNotification "tuigether" "Work resumed"
+
       let epoch = model.TickEpoch + 1
 
       let m = {
@@ -142,6 +170,8 @@ let update msg model =
       m, Cmd.batch [ tickCmd epoch; saveCmd m ]
     | _ -> model, []
   | Stop ->
+    sendNotification "tuigether" "Timer stopped"
+
     let m = {
       model with
           State = Idle
@@ -152,6 +182,8 @@ let update msg model =
   | Pause ->
     match model.State with
     | Running ->
+      sendNotification "tuigether" "Paused"
+
       let m = {
         model with
             State = Paused
@@ -172,7 +204,7 @@ let update msg model =
         { model with Remaining = next }, tickCmd model.TickEpoch
     | _ -> model, []
   | WorkFinished ->
-    sendNotification ()
+    sendNotification "tuigether" "Drive finished — driver change, break started!"
 
     let m = {
       model with
@@ -184,7 +216,7 @@ let update msg model =
     match model.State with
     | Running
     | Paused ->
-      sendNotification ()
+      sendNotification "tuigether" "Drive skipped — driver change, break started!"
 
       let m = {
         model with
@@ -223,6 +255,8 @@ let update msg model =
         breakTickCmd
     | _ -> model, []
   | BreakFinished ->
+    sendNotification "tuigether" "Break over!"
+
     let m = {
       model with
           State = Idle
@@ -234,6 +268,8 @@ let update msg model =
   | SkipPause ->
     match model.State with
     | Breaking _ ->
+      sendNotification "tuigether" "Break skipped!"
+
       let m = {
         model with
             State = Idle
