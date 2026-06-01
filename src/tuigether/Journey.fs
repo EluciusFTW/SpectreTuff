@@ -235,7 +235,8 @@ let widget (model: Model) : IWidget =
           Text.line [ box; Text.span " "; nameSpan ]
 
         let userLines = model.Users |> List.map userLine
-        context.Render(paragraph userLines, port "users")
+
+        context.Render(paragraph userLines |> withOverflow Overflow.Ellipsis, port "users")
 
         context.Render(Timer.widget model.Timer, port "road")
   }
