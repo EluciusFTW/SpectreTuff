@@ -1,7 +1,6 @@
 module Timer
 
 open System
-open System.Runtime.InteropServices
 open Elmish
 open Firebase.Database
 open Spectre.Console
@@ -36,7 +35,7 @@ type Model = {
   UserAvatars: Map<string, Creature>
   TickEpoch: int
   Persistence: Persistence
-  NotificationsEnabled: bool
+  Notify: string -> unit
 }
 
 type Msg =
@@ -72,50 +71,9 @@ let private flashTickCmd = Cmd.OfAsync.perform (fun () -> async { do! Async.Slee
 
 let private breakTickCmd = Cmd.OfAsync.perform (fun () -> async { do! Async.Sleep 500 }) () (fun () -> BreakTick)
 
-// ─── Notification ────────────────────────────────────────────────────────────
-
-let private windowsToastScript (title: string) (message: string) =
-  let escape (value: string) =
-    value.Replace("'", "''")
-
-  sprintf
-    "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); $texts = $template.GetElementsByTagName('text'); $texts.Item(0).AppendChild($template.CreateTextNode('%s')) | Out-Null; $texts.Item(1).AppendChild($template.CreateTextNode('%s')) | Out-Null; $toast = [Windows.UI.Notifications.ToastNotification]::new($template); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('tuigether').Show($toast)"
-    (escape title)
-    (escape message)
-
-let private sendNotification (title: string) (message: string) =
-  try
-    let psi = Diagnostics.ProcessStartInfo()
-
-    match RuntimeInformation.IsOSPlatform OSPlatform.OSX, RuntimeInformation.IsOSPlatform OSPlatform.Linux with
-    | true, _ ->
-      psi.FileName <- "osascript"
-      psi.ArgumentList.Add("-e")
-      psi.ArgumentList.Add(sprintf "display notification \"%s\" with title \"%s\"" message title)
-    | _, true ->
-      psi.FileName <- "notify-send"
-      psi.ArgumentList.Add(title)
-      psi.ArgumentList.Add(message)
-    | _ ->
-      psi.FileName <- "powershell"
-      psi.ArgumentList.Add("-NoProfile")
-      psi.ArgumentList.Add("-Command")
-      psi.ArgumentList.Add(windowsToastScript title message)
-
-    psi.UseShellExecute <- false
-    psi.CreateNoWindow <- true
-    Diagnostics.Process.Start(psi) |> ignore
-  with _ ->
-    ()
-
-let private notifyIf (enabled: bool) (title: string) (message: string) =
-  match enabled with
-  | true -> sendNotification title message
-  | false -> ()
-
 // ─── Init ────────────────────────────────────────────────────────────────────
 
-let init (client: FirebaseClient) (sessionId: string) (notificationsEnabled: bool) = {
+let init (client: FirebaseClient) (sessionId: string) (notify: string -> unit) = {
   Remaining = workDuration
   Phase = Work
   State = Idle
@@ -127,7 +85,7 @@ let init (client: FirebaseClient) (sessionId: string) (notificationsEnabled: boo
     Client = client
     SessionId = sessionId
   }
-  NotificationsEnabled = notificationsEnabled
+  Notify = notify
 }
 
 let resetForDriver (previous: Model) (driver: string option) (users: string list) (avatars: Map<string, Creature>) = {
@@ -139,7 +97,7 @@ let resetForDriver (previous: Model) (driver: string option) (users: string list
   UserAvatars = avatars
   TickEpoch = previous.TickEpoch + 1
   Persistence = previous.Persistence
-  NotificationsEnabled = previous.NotificationsEnabled
+  Notify = previous.Notify
 }
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
@@ -164,8 +122,8 @@ let update msg model =
     | Idle
     | Paused ->
       match model.State with
-      | Idle -> notifyIf model.NotificationsEnabled "tuigether" "Work started!"
-      | _ -> notifyIf model.NotificationsEnabled "tuigether" "Work resumed"
+      | Idle -> model.Notify "Work started!"
+      | _ -> model.Notify "Work resumed"
 
       let epoch = model.TickEpoch + 1
 
@@ -178,7 +136,7 @@ let update msg model =
       m, Cmd.batch [ tickCmd epoch; saveCmd m ]
     | _ -> model, []
   | Stop ->
-    notifyIf model.NotificationsEnabled "tuigether" "Timer stopped"
+    model.Notify "Timer stopped"
 
     let m = {
       model with
@@ -190,7 +148,7 @@ let update msg model =
   | Pause ->
     match model.State with
     | Running ->
-      notifyIf model.NotificationsEnabled "tuigether" "Paused"
+      model.Notify "Paused"
 
       let m = {
         model with
@@ -212,7 +170,7 @@ let update msg model =
         { model with Remaining = next }, tickCmd model.TickEpoch
     | _ -> model, []
   | WorkFinished ->
-    notifyIf model.NotificationsEnabled "tuigether" "Drive finished — driver change, break started!"
+    model.Notify "Drive finished — driver change, break started!"
 
     let m = {
       model with
@@ -224,7 +182,7 @@ let update msg model =
     match model.State with
     | Running
     | Paused ->
-      notifyIf model.NotificationsEnabled "tuigether" "Drive skipped — driver change, break started!"
+      model.Notify "Drive skipped — driver change, break started!"
 
       let m = {
         model with
@@ -263,7 +221,7 @@ let update msg model =
         breakTickCmd
     | _ -> model, []
   | BreakFinished ->
-    notifyIf model.NotificationsEnabled "tuigether" "Break over!"
+    model.Notify "Break over!"
 
     let m = {
       model with
@@ -276,7 +234,7 @@ let update msg model =
   | SkipPause ->
     match model.State with
     | Breaking _ ->
-      notifyIf model.NotificationsEnabled "tuigether" "Break skipped!"
+      model.Notify "Break skipped!"
 
       let m = {
         model with

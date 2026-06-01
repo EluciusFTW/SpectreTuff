@@ -94,7 +94,7 @@ let init
   (currentUser: string)
   (avatarName: string)
   (data: Session.Data)
-  (notificationsEnabled: bool)
+  (notify: string -> unit)
   =
   let myCreature = creatureByName avatarName
 
@@ -114,7 +114,7 @@ let init
           Creature = creatureByName data.ActiveDriver
         }
     CurrentUser = me
-    Timer = Timer.init client sessionId notificationsEnabled
+    Timer = Timer.init client sessionId notify
     Persistence = {
       Client = client
       SessionId = sessionId

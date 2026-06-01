@@ -23,8 +23,13 @@ match Config.load () with
   let renderer = Spectre.Tui.Renderer terminal
   renderer.NoTargetFps()
 
+  let notify =
+    match settings.NotificationsEnabled with
+    | true -> Notification.send
+    | false -> fun _ -> ()
+
   Elmish.Program.mkProgram
-    (Application.init client settings.TuigetherUser settings.NotificationsEnabled)
+    (Application.init client settings.TuigetherUser notify)
     (Application.update client settings.TuigetherUser)
     (Application.view renderer)
   |> Elmish.Program.withSubscription (fun model ->

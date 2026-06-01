@@ -42,7 +42,7 @@ let init
   (avatarName: string)
   (sessionId: string)
   (sessionData: Session.Data)
-  (notificationsEnabled: bool)
+  (notify: string -> unit)
   =
   let model = {
     Client = client
@@ -55,7 +55,7 @@ let init
     Notes = Notes.init client sessionId user
     TodoList = TodoList.init client sessionId
     SessionInfo = SessionInfo.init client sessionId user sessionData
-    Journey = Journey.init client sessionId user avatarName sessionData notificationsEnabled
+    Journey = Journey.init client sessionId user avatarName sessionData notify
   }
 
   let joinCmd = Cmd.OfAsync.perform (fun () -> Firebase.Users.join client sessionId user avatarName) () JoinCompleted
