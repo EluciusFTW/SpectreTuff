@@ -150,7 +150,12 @@ let wipSync (title: string) : Async<Result<unit, string>> =
               | Error e -> Error e
   }
 
-let syncCurrentBranch () : Async<Result<unit, string>> =
+type SyncResult =
+  | Synced
+  // No ff path — origin rebased/amended. Counts for the prompt.
+  | Diverged of ahead: int * behind: int
+
+let syncCurrentBranch () : Async<Result<SyncResult, string>> =
   async {
     return
       match runGit "fetch" with
@@ -159,13 +164,28 @@ let syncCurrentBranch () : Async<Result<unit, string>> =
         match aheadBehind () with
         | Error e -> Error e
         | Ok(ahead, behind) ->
-          match ahead > 0 && behind = 0 with
-          | true ->
+          match ahead, behind with
+          | _, 0 when ahead > 0 ->
             match runGit "push" with
-            | Ok _ -> Ok()
+            | Ok _ -> Ok Synced
             | Error e -> Error e
-          | false ->
-            match runGit "pull" with
-            | Ok _ -> Ok()
+          | 0, _ when behind > 0 ->
+            // --ff-only: no merge commit. Non-ff fails clean, tree untouched.
+            match runGit "pull --ff-only" with
+            | Ok _ -> Ok Synced
             | Error e -> Error e
+          | 0, 0 -> Ok Synced
+          | _ -> Ok(Diverged(ahead, behind))
+  }
+
+// Destructive: drops local commits + working changes. Confirm first.
+let resetToUpstream () : Async<Result<unit, string>> =
+  async {
+    return
+      match runGit "fetch" with
+      | Error e -> Error e
+      | Ok _ ->
+        match runGit "reset --hard @{upstream}" with
+        | Ok _ -> Ok()
+        | Error e -> Error e
   }

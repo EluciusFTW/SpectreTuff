@@ -31,6 +31,7 @@ Formatting rules are in `.editorconfig`.
 - Boolean toggles use paired functions (`showFoo`/`hideFoo`, `foo`/`noFoo`) — never `withFoo: bool`.
 - API names are symmetric (e.g. `withHorizontalAlignment` / `withVerticalAlignment`).
 - Prefer `match` over `if`/`else`.
+- Code comments terse, caveman-style: drop articles/filler, fragments OK. Keep technical substance. State the *why*, not the obvious.
 
 ## Logging (tuigether)
 

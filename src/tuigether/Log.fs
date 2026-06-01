@@ -77,7 +77,7 @@ let append (entry: string) (model: Model) =
     model.Entries.Add entry
     writeLine entry)
 
-// File-only log line for code with no Log.Model in scope.
+// File-only log, no Log.Model needed.
 let line (entry: string) =
   lock fileLock (fun () -> writeLine entry)
 

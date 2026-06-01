@@ -22,6 +22,8 @@ type BranchPopup = {
 
 type SyncPopupStage =
   | RunningSync
+  | SyncDiverged of message: string
+  | DiscardingLocal
   | SyncFailed of error: string
 
 type InputMode =
@@ -72,7 +74,9 @@ type Msg =
   | BranchCreateCompleted of name: string * Result<unit, string>
   | BeginSync
   | BeginWipSync
-  | SyncCompleted of Result<unit, string>
+  | SyncCompleted of Result<Git.SyncResult, string>
+  | DiscardLocalAndPull
+  | DiscardCompleted of Result<unit, string>
   | WipSyncCompleted of Result<unit, string>
   | DismissSyncPopup
   | MaybeShowGoalPopup
@@ -223,6 +227,13 @@ let private syncFailedBindings: KeyBinding<Model, Msg> list = [
   KeyBinding.createSpecial ConsoleKey.Escape "dismiss" DismissSyncPopup
 ]
 
+// Discard is destructive, so it's bound to an explicit 'd' — never Enter, which
+// is too easy to hit reflexively. Esc/Enter both cancel (safe default).
+let private syncDivergedBindings: KeyBinding<Model, Msg> list = [
+  KeyBinding.create 'd' "DISCARD local, take origin" DiscardLocalAndPull
+  KeyBinding.createSpecial ConsoleKey.Escape "cancel" DismissSyncPopup
+]
+
 let private goalPopupBindings: KeyBinding<Model, Msg> list = [
   KeyBinding.createSpecial ConsoleKey.Enter "save & close" CloseGoalPopup
   KeyBinding.createSpecial ConsoleKey.Escape "dismiss" CloseGoalPopup
@@ -266,7 +277,16 @@ let handleKey (key: ConsoleKeyInfo) (model: Model) : Msg option =
     | ConsoleKey.Enter -> Some ConfirmBranch
     | ConsoleKey.Escape -> Some DismissBranchPopup
     | _ -> None
-  | SyncPopup RunningSync -> None
+  | SyncPopup RunningSync
+  | SyncPopup DiscardingLocal -> None
+  | SyncPopup(SyncDiverged _) ->
+    match key.Key with
+    | ConsoleKey.Escape
+    | ConsoleKey.Enter -> Some DismissSyncPopup
+    | _ ->
+      match key.KeyChar with
+      | 'd' -> Some DiscardLocalAndPull
+      | _ -> None
   | SyncPopup(SyncFailed _) ->
     match key.Key with
     | ConsoleKey.Enter
@@ -287,7 +307,9 @@ let keyMap (model: Model) =
     | BranchPopup { Stage = EditingName _ } -> branchEditBindings
     | BranchPopup { Stage = Submitting } -> emptyBindings
     | BranchPopup { Stage = CreateFailed _ } -> branchFailedBindings
-    | SyncPopup RunningSync -> emptyBindings
+    | SyncPopup RunningSync
+    | SyncPopup DiscardingLocal -> emptyBindings
+    | SyncPopup(SyncDiverged _) -> syncDivergedBindings
     | SyncPopup(SyncFailed _) -> syncFailedBindings
 
   KeyBinding.toKeyMap bindings model
@@ -328,12 +350,15 @@ let private createBranchCmd (name: string) : Cmd<Msg> =
   Cmd.OfAsync.perform (fun () -> Git.createAndPushBranch name) () (fun result -> BranchCreateCompleted(name, result))
 
 let private syncCmd (onSessionBranch: bool) (sessionBranch: string) : Cmd<Msg> =
-  let work =
-    match onSessionBranch with
-    | true -> Git.syncCurrentBranch ()
-    | false -> Git.fetchAndCheckout sessionBranch
+  match onSessionBranch with
+  | true -> Cmd.OfAsync.perform Git.syncCurrentBranch () SyncCompleted
+  | false ->
+    // Checkout only ff's, never diverges.
+    Cmd.OfAsync.perform (fun () -> Git.fetchAndCheckout sessionBranch) () (fun result ->
+      SyncCompleted(Result.map (fun () -> Git.Synced) result))
 
-  Cmd.OfAsync.perform (fun () -> work) () SyncCompleted
+let private resetToUpstreamCmd () : Cmd<Msg> =
+  Cmd.OfAsync.perform Git.resetToUpstream () DiscardCompleted
 
 let private wipSyncCmd (title: string) : Cmd<Msg> =
   Cmd.OfAsync.perform (fun () -> Git.wipSync title) () WipSyncCompleted
@@ -609,14 +634,46 @@ let update msg model =
       },
       wipSyncCmd model.SessionTitle
     | _ -> model, []
-  | SyncCompleted(Ok()) ->
+  | SyncCompleted(Ok Git.Synced) ->
     {
       model with
           InputMode = Normal
           LocalGitBranch = Git.readCurrentBranch ()
     },
     []
+  | SyncCompleted(Ok(Git.Diverged(ahead, behind))) ->
+    let message = sprintf "Diverged from origin (rebased/amended): %d local commit(s), %d on origin." ahead behind
+
+    {
+      model with
+          InputMode = SyncPopup(SyncDiverged message)
+          LocalGitBranch = Git.readCurrentBranch ()
+    },
+    []
   | SyncCompleted(Error err) ->
+    {
+      model with
+          InputMode = SyncPopup(SyncFailed err)
+          LocalGitBranch = Git.readCurrentBranch ()
+    },
+    []
+  | DiscardLocalAndPull ->
+    match model.InputMode with
+    | SyncPopup(SyncDiverged _) ->
+      {
+        model with
+            InputMode = SyncPopup DiscardingLocal
+      },
+      resetToUpstreamCmd ()
+    | _ -> model, []
+  | DiscardCompleted(Ok()) ->
+    {
+      model with
+          InputMode = Normal
+          LocalGitBranch = Git.readCurrentBranch ()
+    },
+    []
+  | DiscardCompleted(Error err) ->
     {
       model with
           InputMode = SyncPopup(SyncFailed err)
@@ -752,9 +809,19 @@ let private renderSyncPopup (stage: SyncPopupStage) (target: string) : IWidget =
   let body: IWidget =
     match stage with
     | RunningSync -> ofString (sprintf "  Syncing %s…" target) :> IWidget
+    | DiscardingLocal -> ofString "  Discarding local changes…" :> IWidget
+    | SyncDiverged message -> paragraph [ Text.line [ Text.styledSpan (Nullable(Style Color.Red)) message ] ] :> IWidget
     | SyncFailed err -> paragraph [ Text.line [ Text.styledSpan (Nullable(Style Color.Red)) err ] ] :> IWidget
 
-  box (Look.fromColor Color.Green)
+  // Frame red for problem states, green for in-progress.
+  let frameColor =
+    match stage with
+    | SyncDiverged _
+    | SyncFailed _ -> Color.Red
+    | RunningSync
+    | DiscardingLocal -> Color.Green
+
+  box (Look.fromColor frameColor)
   |> withTitle "Sync branch"
   |> withInnerWidget body
   :> IWidget

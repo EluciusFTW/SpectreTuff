@@ -172,8 +172,8 @@ let keyMap (model: Model) =
 
   KeyBinding.toKeyMap bindings model
 
-// On Linux, order by display server: xclip exits non-zero under Wayland without
-// throwing, so the wrong-server tool is only a last-resort fallback.
+// Linux: order by display server. xclip exits non-zero under Wayland (no
+// throw), so wrong-server tool is last resort.
 let private clipboardCandidates () : (string * string) list =
   match RuntimeInformation.IsOSPlatform OSPlatform.Windows, RuntimeInformation.IsOSPlatform OSPlatform.OSX with
   | true, _ -> [ "clip", "" ]
