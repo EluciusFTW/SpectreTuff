@@ -37,3 +37,11 @@ module TextBoxes =
   let withPlaceholderLook look (textBox: TextBoxWidget) =
     textBox.PlaceholderStyle <- Look.toStyle look
     textBox
+
+  let focused (textBox: TextBoxWidget) =
+    textBox.IsFocused <- true
+    textBox
+
+  let unfocused (textBox: TextBoxWidget) =
+    textBox.IsFocused <- false
+    textBox
