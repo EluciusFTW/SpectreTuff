@@ -45,3 +45,11 @@ module TextBoxes =
   let unfocused (textBox: TextBoxWidget) =
     textBox.IsFocused <- false
     textBox
+
+  let withCursorAtEnd (textBox: TextBoxWidget) =
+    textBox.MoveToEnd()
+    textBox
+
+  let withCursorAtStart (textBox: TextBoxWidget) =
+    textBox.MoveToStart()
+    textBox
