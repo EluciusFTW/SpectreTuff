@@ -21,6 +21,7 @@
     <Compile Include="Widgets/ScrollView.fs" />
     <Compile Include="Widgets/Tabs.fs" />
     <Compile Include="Widgets/TextBox.fs" />
+    <Compile Include="Widgets/Popup.fs" />
     <Compile Include="Widgets/Help.fs" />
     <Compile Include="Widgets/Spinner.fs" />
     <Compile Include="Widgets/ProgressBar.fs" />
