@@ -1,4 +1,4 @@
-name: spectrecoff-publish
+name: spectretuff-publish
 
 on:
   push:
