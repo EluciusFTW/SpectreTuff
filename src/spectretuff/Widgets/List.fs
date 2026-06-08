@@ -34,6 +34,7 @@ module Lists =
       match index with
       | Some i -> System.Nullable i
       | None -> System.Nullable()
+
     list
 
   let wrapAround (list: ListWidget<'t>) =

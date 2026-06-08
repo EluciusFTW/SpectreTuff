@@ -26,8 +26,12 @@ module TextBoxes =
     textBox.PasswordChar <- Option.toNullable character
     textBox
 
-  let withReadOnly (enable: bool) (textBox: TextBoxWidget) =
-    textBox.IsReadOnly <- enable
+  let readOnly (textBox: TextBoxWidget) =
+    textBox.IsReadOnly <- true
+    textBox
+
+  let editable (textBox: TextBoxWidget) =
+    textBox.IsReadOnly <- false
     textBox
 
   let withLook look (textBox: TextBoxWidget) =
@@ -36,4 +40,20 @@ module TextBoxes =
 
   let withPlaceholderLook look (textBox: TextBoxWidget) =
     textBox.PlaceholderStyle <- Look.toStyle look
+    textBox
+
+  let focused (textBox: TextBoxWidget) =
+    textBox.IsFocused <- true
+    textBox
+
+  let unfocused (textBox: TextBoxWidget) =
+    textBox.IsFocused <- false
+    textBox
+
+  let withCursorAtEnd (textBox: TextBoxWidget) =
+    textBox.MoveToEnd()
+    textBox
+
+  let withCursorAtStart (textBox: TextBoxWidget) =
+    textBox.MoveToStart()
     textBox

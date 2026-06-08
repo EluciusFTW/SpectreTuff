@@ -3,8 +3,8 @@ namespace SpectreTuff
 open Spectre.Tui
 
 module View =
-  let shrink (rectangle: Rectangle) w h =
-    rectangle.Inflate(Size(-1 * w, -1 * h))
+  let shrink (rectangle: Rectangle) width height =
+    rectangle.Inflate(Size(-1 * width, -1 * height))
 
   let getInner rectangle =
     shrink rectangle 1 1
@@ -33,6 +33,8 @@ module View =
   let boundingBox (other: Rectangle) (rectangle: Rectangle) =
     rectangle.Union(other)
 
-  let intersectAll (rectangles: Rectangle seq) = Seq.reduce intersect rectangles
+  let intersectAll (rectangles: Rectangle seq) =
+    Seq.reduce intersect rectangles
 
-  let boundingBoxOf (rectangles: Rectangle seq) = Seq.reduce boundingBox rectangles
+  let boundingBoxOf (rectangles: Rectangle seq) =
+    Seq.reduce boundingBox rectangles

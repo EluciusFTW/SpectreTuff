@@ -15,7 +15,7 @@ type Msg =
   | Delete
   | Add
 
-let private bindings : KeyBinding<Model, Msg> list = [
+let private bindings: KeyBinding<Model, Msg> list = [
   KeyBinding.createSpecial ConsoleKey.UpArrow "up" Up
   KeyBinding.createSpecial ConsoleKey.DownArrow "down" Down
 ]
@@ -51,11 +51,12 @@ let update msg model =
       },
       []
 
-let keyMap model = KeyBinding.toKeyMap bindings model
+let keyMap model =
+  KeyBinding.toKeyMap bindings model
 
 let widget (model: Model) =
   list model.items
   |> selectedIndex model.index
-  |> withHighlightSymbol (LineExtensions.FromString ("> ", Style Color.Blue))
+  |> withHighlightSymbol (LineExtensions.FromString("> ", Style Color.Blue))
   |> wrapAround
   :> IWidget
