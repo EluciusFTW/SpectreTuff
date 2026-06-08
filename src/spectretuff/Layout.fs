@@ -1,44 +1,43 @@
-namespace SpectreTuff
+module SpectreTuff.Layout
 
 open Spectre.Tui
 
-module Layout =
-  type Direction =
-    | Horizontal
-    | Vertical
+type Direction =
+  | Horizontal
+  | Vertical
 
-  let layout name =
-    new Layout(name)
+let layout name =
+  new Layout(name)
 
-  let split direction children (layout: Layout) =
-    match direction with
-    | Horizontal -> layout.SplitRows children
-    | Vertical -> layout.SplitColumns children
+let split direction children (layout: Layout) =
+  match direction with
+  | Horizontal -> layout.SplitRows children
+  | Vertical -> layout.SplitColumns children
 
-  let splitHorizontally = split Horizontal
-  let splitVertically = split Vertical
+let splitHorizontally = split Horizontal
+let splitVertically = split Vertical
 
-  let getPort (area: Rectangle) (layout: Layout) name =
-    layout.GetArea(area, name)
+let getPort (area: Rectangle) (layout: Layout) name =
+  layout.GetArea(area, name)
 
-  let getLayout name (layout: Layout) =
-    layout.GetLayout name
+let getLayout name (layout: Layout) =
+  layout.GetLayout name
 
-  let setVisibility value (layout: Layout) =
-    layout.IsVisible <- value
-    layout
+let setVisibility value (layout: Layout) =
+  layout.IsVisible <- value
+  layout
 
-  let show = setVisibility true
-  let hide = setVisibility false
+let show = setVisibility true
+let hide = setVisibility false
 
-  let withRatio ratio (layout: Layout) =
-    layout.Ratio <- ratio
-    layout
+let withRatio ratio (layout: Layout) =
+  layout.Ratio <- ratio
+  layout
 
-  let withMinimumSize size (layout: Layout) =
-    layout.MinimumSize <- size
-    layout
+let withMinimumSize size (layout: Layout) =
+  layout.MinimumSize <- size
+  layout
 
-  let withFixedSize (size: int option) (layout: Layout) =
-    layout.Size <- Option.toNullable size
-    layout
+let withFixedSize (size: int option) (layout: Layout) =
+  layout.Size <- Option.toNullable size
+  layout

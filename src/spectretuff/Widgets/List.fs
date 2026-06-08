@@ -1,9 +1,10 @@
-namespace SpectreTuff.Widgets
+[<AutoOpen>]
+module SpectreTuff.Widgets.Lists
 
 open Spectre.Console
 open Spectre.Tui
 open System.Collections.Generic
-open SpectreTuff
+open SpectreTuff.Look
 
 type ListItem(text: string) =
   interface IListWidgetItem with
@@ -16,34 +17,32 @@ type ListItem(text: string) =
 
       Text(LineExtensions.FromString(text, style))
 
-[<AutoOpen>]
-module Lists =
-  let list<'t when 't :> IListWidgetItem> (items: 't seq) =
-    ListWidget<'t>(List<'t>(items))
+let list<'t when 't :> IListWidgetItem> (items: 't seq) =
+  ListWidget<'t>(List<'t>(items))
 
-  let withHighlightLook look (list: ListWidget<'t>) =
-    list.HighlightStyle <- Look.toStyle look
-    list
+let withHighlightLook look (list: ListWidget<'t>) =
+  list.HighlightStyle <- toStyle look
+  list
 
-  let withHighlightSymbol symbol (list: ListWidget<'t>) =
-    list.HighlightSymbol <- symbol
-    list
+let withHighlightSymbol symbol (list: ListWidget<'t>) =
+  list.HighlightSymbol <- symbol
+  list
 
-  let withSelectedIndex (index: int option) (list: ListWidget<'t>) =
-    list.SelectedIndex <-
-      match index with
-      | Some i -> System.Nullable i
-      | None -> System.Nullable()
+let withSelectedIndex (index: int option) (list: ListWidget<'t>) =
+  list.SelectedIndex <-
+    match index with
+    | Some i -> System.Nullable i
+    | None -> System.Nullable()
 
-    list
+  list
 
-  let wrapAround (list: ListWidget<'t>) =
-    list.WrapAround <- true
-    list
+let wrapAround (list: ListWidget<'t>) =
+  list.WrapAround <- true
+  list
 
-  let noWrapAround (list: ListWidget<'t>) =
-    list.WrapAround <- false
-    list
+let noWrapAround (list: ListWidget<'t>) =
+  list.WrapAround <- false
+  list
 
-  let selectedIndex index list =
-    withSelectedIndex (Some index) list
+let selectedIndex index list =
+  withSelectedIndex (Some index) list

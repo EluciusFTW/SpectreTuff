@@ -1,10 +1,9 @@
-namespace SpectreTuff.Widgets
+[<AutoOpen>]
+module SpectreTuff.Widgets.Spinners
 
 open Spectre.Tui
 
-[<AutoOpen>]
-module Spinners =
-  let spinner (kind: SpinnerKind) =
-    let widget = SpinnerWidget()
-    widget.Kind <- kind
-    widget
+let spinner (kind: SpinnerKind) =
+  let widget = SpinnerWidget()
+  widget.Kind <- kind
+  widget
