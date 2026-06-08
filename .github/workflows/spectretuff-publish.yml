@@ -1,0 +1,42 @@
+name: spectrecoff-publish
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "src/spectretuff-cli/**"
+      - "README.md"
+      - "assets/**"
+      - ".github/**"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - uses: dotnet/nbgv@master
+        id: nbgv
+        with:
+          setCommonVars: true
+
+      - run: "echo 'PackageVer: ${{ steps.nbgv.outputs.NuGetPackageVersion }}'"
+
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build src/spectretuff/*.fsproj --configuration Release --no-restore
+
+      - name: Pack
+        run: dotnet pack -c Release -o . src/spectretuff/*.fsproj
+
+      - name: Publish
+        run: dotnet nuget push *.nupkg -k ${{secrets.NUGET_API_KEY}} -s https://api.nuget.org/v3/index.json
