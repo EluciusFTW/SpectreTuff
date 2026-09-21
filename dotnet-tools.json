@@ -3,17 +3,13 @@
   "isRoot": true,
   "tools": {
     "fantomas": {
-      "version": "7.0.5",
-      "commands": [
-        "fantomas"
-      ],
+      "version": "8.0.1",
+      "commands": ["fantomas"],
       "rollForward": false
     },
     "nbgv": {
       "version": "3.9.50",
-      "commands": [
-        "nbgv"
-      ],
+      "commands": ["nbgv"],
       "rollForward": false
     }
   }
