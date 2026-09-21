@@ -71,20 +71,20 @@ module KeyBinding =
       else
         None)
 
-  let toKeyMap (bindings: KeyBinding<'Model, 'Msg> list) (model: 'Model) : Spectre.Tui.App.IKeyMap =
-    { new Spectre.Tui.App.IKeyMap with
-        member _.Help() =
-          bindings
-          |> Seq.choose (fun b ->
-            let action = b.Action model
+  let toKeyMap (bindings: KeyBinding<'Model, 'Msg> list) (model: 'Model) : Spectre.Tui.App.IKeyMap = {
+    new Spectre.Tui.App.IKeyMap with
+      member _.Help() =
+        bindings
+        |> Seq.choose (fun b ->
+          let action = b.Action model
 
-            match action.Message with
-            | Some _ ->
-              Some(
-                Spectre.Tui.App.KeyBinding(
-                  Keys = ResizeArray [ KeyTrigger.toKeyPress b.Trigger ],
-                  Help = action.Description
-                )
+          match action.Message with
+          | Some _ ->
+            Some(
+              Spectre.Tui.App.KeyBinding(
+                Keys = ResizeArray [ KeyTrigger.toKeyPress b.Trigger ],
+                Help = action.Description
               )
-            | None -> None)
-    }
+            )
+          | None -> None)
+  }

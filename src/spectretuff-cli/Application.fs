@@ -52,14 +52,14 @@ let private mainLayout (model: Model) =
     layout "help" |> withFixedSize (Some 1)
   |]
 
-let private globalKeyMap: IKeyMap =
-  { new IKeyMap with
-      member _.Help() =
-        seq {
-          yield KeyBinding(Keys = ResizeArray [ KeyPress.For 'q' ], Help = "quit")
-          yield KeyBinding(Keys = ResizeArray [ KeyPress.For 'l' ], Help = "toggle log")
-        }
-  }
+let private globalKeyMap: IKeyMap = {
+  new IKeyMap with
+    member _.Help() =
+      seq {
+        yield KeyBinding(Keys = ResizeArray [ KeyPress.For 'q' ], Help = "quit")
+        yield KeyBinding(Keys = ResizeArray [ KeyPress.For 'l' ], Help = "toggle log")
+      }
+}
 
 let private buildPanels (model: Model) =
   let focused panelNumber =
@@ -127,15 +127,15 @@ type Application(model: Model) =
       let slotPort = getPort context.Viewport lyt
 
       for panel in panels do
-        let composedWidget =
-          { new IWidget with
-              member _.Render(ctx) =
-                let port = getPort ctx.Viewport panelInnerLayout
-                ctx.Render(panel.Widget, port "content")
+        let composedWidget = {
+          new IWidget with
+            member _.Render(ctx) =
+              let port = getPort ctx.Viewport panelInnerLayout
+              ctx.Render(panel.Widget, port "content")
 
-                if panel.Focused = FocusState.Focused then
-                  ctx.Render(help [ panel.KeyMap ] |> leftAligned, port "keys")
-          }
+              if panel.Focused = FocusState.Focused then
+                ctx.Render(help [ panel.KeyMap ] |> leftAligned, port "keys")
+        }
 
         context.Render(focusableBox panel.Title panel.Number panel.Focused composedWidget, slotPort panel.LayoutSlot)
 

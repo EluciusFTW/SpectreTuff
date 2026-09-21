@@ -19,7 +19,8 @@ let keyListener =
 
     Async.Start(loop (), cts.Token)
 
-    { new IDisposable with
+    {
+      new IDisposable with
         member _.Dispose() =
           cts.Cancel()
     }
