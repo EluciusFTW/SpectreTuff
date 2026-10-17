@@ -23,21 +23,34 @@ KeyBinding.toKeyMap bindings model      // IKeyMap for the help widget
 ```
 
 ## Elmish
-The `EluciusFTW.SpectreTuff.Elmish` package runs an [Elmish](https://github.com/elmish/elmish) program on SpectreTuff. It sets up the terminal, serializes rendering and handles exiting:
+The `EluciusFTW.SpectreTuff.Elmish` package runs an [Elmish](https://github.com/elmish/elmish) program on SpectreTuff. It sets up the terminal, serializes rendering and handles exiting. A minimal app that shows the last key pressed:
 
 ```fsharp
+open System
+open Elmish
+open SpectreTuff.Widgets
 open SpectreTuff.Elmish
 
-// view: 'model -> Dispatch<'msg> -> IWidget
-// update: | Quit -> model, TuiCmd.exit
+type Model = { LastKey: string }
+
+type Msg = KeyPressed of ConsoleKeyInfo
+
+let init () = { LastKey = "none" }, Cmd.none
+
+let update msg model =
+  match msg with
+  | KeyPressed key when key.KeyChar = 'q' -> model, TuiCmd.exit
+  | KeyPressed key -> { LastKey = string key.Key }, Cmd.none
+
+let view model _dispatch =
+  textBox $"Last key: {model.LastKey} (press q to quit)"
+
 Program.mkProgram init update view
-|> Program.withSubscription (fun model ->
-  Subscriptions.keys KeyPressed // KeyPressed of ConsoleKeyInfo
-  @ Subscriptions.tick (TimeSpan.FromSeconds 1.0) Tick)
+|> Program.withSubscription (fun _ -> Subscriptions.keys KeyPressed)
 |> Tui.run // blocks until TuiCmd.exit
 ```
 
-To forward a child component's subscriptions to its parent, use Elmish's `Sub.map "child" ChildMsg childSubs`.
+For periodic updates, add `Subscriptions.tick (TimeSpan.FromSeconds 1.0) Tick` to the subscriptions. To forward a child component's subscriptions to its parent, use Elmish's `Sub.map "child" ChildMsg childSubs`.
 
 ## Versioning
 We are using [NerdBank.GitVersioning](https://github.com/dotnet/Nerdbank.GitVersioning) and follow the version scheme: `<major>.<minor>.<git-depth>` for out releases.

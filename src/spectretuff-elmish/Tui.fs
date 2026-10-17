@@ -24,9 +24,9 @@ module Tui =
     Console.Out.Flush()
 
   /// Runs the program in the terminal and blocks until `TuiCmd.exit` is dispatched.
-  /// The program's view returns the widget to draw; drawing is serialized, since
+  /// The program's view returns the widget to draw (any IWidget); drawing is serialized, since
   /// subscriptions may dispatch from thread-pool threads and the terminal is not thread-safe.
-  let run (program: Program<unit, 'model, 'msg, IWidget>) =
+  let run (program: Program<unit, 'model, 'msg, #IWidget>) =
     let exitSignal = new ManualResetEventSlim false
     ExitSignal.current <- exitSignal
 
@@ -40,7 +40,7 @@ module Tui =
     let renderLock = obj ()
 
     let draw model dispatch =
-      lock renderLock (fun () -> renderer.Draw(fun ctx _ -> ctx.Render(view model dispatch)))
+      lock renderLock (fun () -> renderer.Draw(fun ctx _ -> ctx.Render(view model dispatch :> IWidget)))
 
     program |> Program.withSetState draw |> Program.run
 

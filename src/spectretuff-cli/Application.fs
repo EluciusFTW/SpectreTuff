@@ -198,7 +198,7 @@ let update msg (model: Model) =
     |> Option.defaultValue (model, Cmd.none)
 
 let view (model: Model) _dispatch =
-  Application model :> IWidget
+  Application model
 
 let traceToLog msg (model: Model) _ =
   Log.append (sprintf "%A" msg) model.LogModel
