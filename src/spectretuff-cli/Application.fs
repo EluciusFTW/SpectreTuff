@@ -4,6 +4,7 @@ open System
 open Elmish
 open Spectre.Tui
 open Spectre.Tui.App
+open SpectreTuff.Elmish
 open SpectreTuff.Layout
 open SpectreTuff.Widgets
 
@@ -11,14 +12,13 @@ type Model = {
   CounterModel: Counter.Model
   ListModel: ListWidget.Model
   TimerModel: Timer.Model
-  ExitEvent: Threading.ManualResetEventSlim
   LogModel: Log.Model
   Focus: int
   LogVisible: bool
 }
 
 type Msg =
-  | InputMsg of Input.Msg
+  | KeyPressed of ConsoleKeyInfo
   | CounterMsg of Counter.Msg
   | ListMsg of ListWidget.Msg
   | TimerMsg of Timer.Msg
@@ -39,8 +39,6 @@ type Panel = {
 let private panelInnerLayout =
   layout "panel-inner"
   |> splitHorizontally [| layout "content"; layout "keys" |> withFixedSize (Some 1) |]
-
-let exitEvent = new System.Threading.ManualResetEventSlim false
 
 let private mainLayout (model: Model) =
   layout "main"
@@ -158,7 +156,6 @@ let init () =
       ]
     }
     TimerModel = Timer.init ()
-    ExitEvent = exitEvent
     LogModel = Log.init ()
     Focus = 1
     LogVisible = true
@@ -175,37 +172,33 @@ let update msg (model: Model) =
   let panels = buildPanels model
 
   match msg with
-  | InputMsg inputMsg ->
-    match inputMsg with
-    | Input.KeyPressed key ->
-      match key.Key with
-      | ConsoleKey.Q -> model, Cmd.ofMsg Exit
-      | ConsoleKey.L -> model, Cmd.ofMsg ToggleLog
+  | KeyPressed key ->
+    match key.Key with
+    | ConsoleKey.Q -> model, Cmd.ofMsg Exit
+    | ConsoleKey.L -> model, Cmd.ofMsg ToggleLog
+    | _ ->
+      match tryFocusNumber key with
+      | Some number when panels |> List.exists (fun p -> p.Number = number) -> { model with Focus = number }, []
       | _ ->
-        match tryFocusNumber key with
-        | Some number when panels |> List.exists (fun p -> p.Number = number) -> { model with Focus = number }, []
-        | _ ->
-          panels
-          |> List.tryFind (fun p -> p.Number = model.Focus)
-          |> Option.bind (fun p -> p.HandleKey key)
-          |> Option.map (fun msg -> model, Cmd.ofMsg msg)
-          |> Option.defaultValue (model, Cmd.none)
+        panels
+        |> List.tryFind (fun p -> p.Number = model.Focus)
+        |> Option.bind (fun p -> p.HandleKey key)
+        |> Option.map (fun msg -> model, Cmd.ofMsg msg)
+        |> Option.defaultValue (model, Cmd.none)
   | ToggleLog ->
     {
       model with
           LogVisible = not model.LogVisible
     },
     []
-  | Exit ->
-    model.ExitEvent.Set()
-    model, []
+  | Exit -> model, TuiCmd.exit
   | _ ->
     panels
     |> List.tryPick (fun p -> p.Update msg model)
     |> Option.defaultValue (model, Cmd.none)
 
-let view (renderer: Renderer) (model: Model) dispatch =
-  renderer.Draw(fun ctx _ -> ctx.Render(Application model))
+let view (model: Model) _dispatch =
+  Application model
 
 let traceToLog msg (model: Model) _ =
   Log.append (sprintf "%A" msg) model.LogModel

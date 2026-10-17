@@ -3,7 +3,7 @@ module ListWidget
 open System
 open Spectre.Console
 open Spectre.Tui
-open Keymap
+open SpectreTuff.Keymap
 open SpectreTuff.Layout
 open SpectreTuff.Widgets
 

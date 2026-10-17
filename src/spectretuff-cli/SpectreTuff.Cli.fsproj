@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\spectretuff\SpectreTuff.fsproj" />
+    <ProjectReference Include="..\spectretuff-elmish\SpectreTuff.Elmish.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -15,8 +16,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="Keylistener.fs" />
-    <Compile Include="Keymap.fs" />
     <Compile Include="ListWidget.fs" />
     <Compile Include="Counter.fs" />
     <Compile Include="Log.fs" />

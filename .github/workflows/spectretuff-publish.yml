@@ -36,8 +36,14 @@ jobs:
       - name: Build
         run: dotnet build src/spectretuff/*.fsproj --configuration Release --no-restore
 
+      - name: Build Elmish
+        run: dotnet build src/spectretuff-elmish/*.fsproj --configuration Release --no-restore
+
       - name: Pack
         run: dotnet pack -c Release -o . src/spectretuff/*.fsproj
+
+      - name: Pack Elmish
+        run: dotnet pack -c Release -o . src/spectretuff-elmish/*.fsproj
 
       - name: Publish
         run: dotnet nuget push *.nupkg -k ${{secrets.NUGET_API_KEY}} -s https://api.nuget.org/v3/index.json
