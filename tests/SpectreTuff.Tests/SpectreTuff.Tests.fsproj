@@ -18,6 +18,7 @@
   <ItemGroup>
     <Compile Include="LookTests.fs" />
     <Compile Include="ViewTests.fs" />
+    <Compile Include="KeymapTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

@@ -32,6 +32,7 @@
   <ItemGroup>
     <Compile Include="Look.fs" />
     <Compile Include="Input.fs" />
+    <Compile Include="Keymap.fs" />
     <Compile Include="View.fs" />
     <Compile Include="Text.fs" />
     <Compile Include="Layout.fs" />

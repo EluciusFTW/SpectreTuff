@@ -18,7 +18,7 @@ type Model = {
 }
 
 type Msg =
-  | InputMsg of Input.Msg
+  | KeyPressed of ConsoleKeyInfo
   | CounterMsg of Counter.Msg
   | ListMsg of ListWidget.Msg
   | TimerMsg of Timer.Msg
@@ -175,21 +175,19 @@ let update msg (model: Model) =
   let panels = buildPanels model
 
   match msg with
-  | InputMsg inputMsg ->
-    match inputMsg with
-    | Input.KeyPressed key ->
-      match key.Key with
-      | ConsoleKey.Q -> model, Cmd.ofMsg Exit
-      | ConsoleKey.L -> model, Cmd.ofMsg ToggleLog
+  | KeyPressed key ->
+    match key.Key with
+    | ConsoleKey.Q -> model, Cmd.ofMsg Exit
+    | ConsoleKey.L -> model, Cmd.ofMsg ToggleLog
+    | _ ->
+      match tryFocusNumber key with
+      | Some number when panels |> List.exists (fun p -> p.Number = number) -> { model with Focus = number }, []
       | _ ->
-        match tryFocusNumber key with
-        | Some number when panels |> List.exists (fun p -> p.Number = number) -> { model with Focus = number }, []
-        | _ ->
-          panels
-          |> List.tryFind (fun p -> p.Number = model.Focus)
-          |> Option.bind (fun p -> p.HandleKey key)
-          |> Option.map (fun msg -> model, Cmd.ofMsg msg)
-          |> Option.defaultValue (model, Cmd.none)
+        panels
+        |> List.tryFind (fun p -> p.Number = model.Focus)
+        |> Option.bind (fun p -> p.HandleKey key)
+        |> Option.map (fun msg -> model, Cmd.ofMsg msg)
+        |> Option.defaultValue (model, Cmd.none)
   | ToggleLog ->
     {
       model with
