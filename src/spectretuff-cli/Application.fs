@@ -4,6 +4,7 @@ open System
 open Elmish
 open Spectre.Tui
 open Spectre.Tui.App
+open SpectreTuff.Elmish
 open SpectreTuff.Layout
 open SpectreTuff.Widgets
 
@@ -11,7 +12,6 @@ type Model = {
   CounterModel: Counter.Model
   ListModel: ListWidget.Model
   TimerModel: Timer.Model
-  ExitEvent: Threading.ManualResetEventSlim
   LogModel: Log.Model
   Focus: int
   LogVisible: bool
@@ -39,8 +39,6 @@ type Panel = {
 let private panelInnerLayout =
   layout "panel-inner"
   |> splitHorizontally [| layout "content"; layout "keys" |> withFixedSize (Some 1) |]
-
-let exitEvent = new System.Threading.ManualResetEventSlim false
 
 let private mainLayout (model: Model) =
   layout "main"
@@ -158,7 +156,6 @@ let init () =
       ]
     }
     TimerModel = Timer.init ()
-    ExitEvent = exitEvent
     LogModel = Log.init ()
     Focus = 1
     LogVisible = true
@@ -194,16 +191,14 @@ let update msg (model: Model) =
           LogVisible = not model.LogVisible
     },
     []
-  | Exit ->
-    model.ExitEvent.Set()
-    model, []
+  | Exit -> model, TuiCmd.exit
   | _ ->
     panels
     |> List.tryPick (fun p -> p.Update msg model)
     |> Option.defaultValue (model, Cmd.none)
 
-let view (renderer: Renderer) (model: Model) dispatch =
-  renderer.Draw(fun ctx _ -> ctx.Render(Application model))
+let view (model: Model) _dispatch =
+  Application model :> IWidget
 
 let traceToLog msg (model: Model) _ =
   Log.append (sprintf "%A" msg) model.LogModel

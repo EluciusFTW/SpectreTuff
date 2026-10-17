@@ -1,14 +1,6 @@
-open System
+open SpectreTuff.Elmish
 
-Console.Clear()
-let terminal = Spectre.Tui.Terminal.Create()
-let renderer = Spectre.Tui.Renderer terminal
-renderer.NoTargetFps()
-
-Elmish.Program.mkProgram Application.init Application.update (Application.view renderer)
-|> Input.withKeyListener Application.InputMsg
+Elmish.Program.mkProgram Application.init Application.update Application.view
+|> Elmish.Program.withSubscription (fun _ -> Subscriptions.keys Application.KeyPressed)
 |> Elmish.Program.withTrace Application.traceToLog
-|> Elmish.Program.run
-
-Application.exitEvent.Wait()
-Console.Clear()
+|> Tui.run
